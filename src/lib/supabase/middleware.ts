@@ -6,61 +6,82 @@ export async function updateSession(request: NextRequest) {
     request,
   });
 
+  const pathname = request.nextUrl.pathname;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  // If Supabase is not configured yet in local environment, allow pass-through
-  if (
-    !supabaseUrl ||
-    !supabaseAnonKey ||
-    supabaseUrl === "https://your-project.supabase.co" ||
-    supabaseAnonKey.includes("your-")
-  ) {
-    return supabaseResponse;
+  let authUser: { id: string; email?: string } | null = null;
+  let authRole: "admin" | "customer" | null = null;
+
+  // 1. Check if Supabase cloud is configured
+  const isCloudConfigured = Boolean(
+    supabaseUrl &&
+    supabaseAnonKey &&
+    supabaseUrl !== "https://your-project.supabase.co" &&
+    !supabaseAnonKey.includes("your-")
+  );
+
+  if (isCloudConfigured) {
+    const supabase = createServerClient(supabaseUrl!, supabaseAnonKey!, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }>) {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+          supabaseResponse = NextResponse.next({
+            request,
+          });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options as any)
+          );
+        },
+      },
+    });
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+      authUser = { id: user.id, email: user.email };
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single();
+      authRole = (profile?.role as "admin" | "customer") ?? "customer";
+    }
+    // STRICT SECURITY POLICY:
+    // In live Supabase mode (isCloudConfigured = true), NEVER fall back to unsigned client cookies (vyra_auth_session).
+    // All route authorization must rely strictly on verified Supabase Auth JWT and database profiles.
+    // If supabase.auth.getUser() returned null, authUser and authRole remain strictly null.
+  } else {
+    // 2. Check local secure session cookie
+    const sessionCookie = request.cookies.get("vyra_auth_session")?.value;
+    if (sessionCookie) {
+      try {
+        const parsed = JSON.parse(decodeURIComponent(sessionCookie));
+        if (parsed && parsed.id && parsed.role) {
+          authUser = { id: parsed.id, email: parsed.email };
+          authRole = parsed.role;
+        }
+      } catch {
+        // Invalid session cookie
+      }
+    }
   }
 
-  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
-      },
-      setAll(cookiesToSet: Array<{ name: string; value: string; options?: Record<string, unknown> }>) {
-        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-        supabaseResponse = NextResponse.next({
-          request,
-        });
-        cookiesToSet.forEach(({ name, value, options }) =>
-          supabaseResponse.cookies.set(name, value, options as any)
-        );
-      },
-    },
-  });
-
-  // IMPORTANT: DO NOT use getSession() in middleware as it is insecure.
-  // getUser() sends a request to the Supabase Auth server to validate the token.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const pathname = request.nextUrl.pathname;
-
-  // 1. Protected Admin Routes
+  // ─── RULE 1: Admin Routes Protection ──────────────────────────────────────────
   if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
-    if (!user) {
+    if (!authUser) {
       const url = request.nextUrl.clone();
       url.pathname = "/admin/login";
       url.searchParams.set("redirect", pathname);
       return NextResponse.redirect(url);
     }
 
-    // Role check for admin
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-
-    if (profile?.role !== "admin") {
+    if (authRole !== "admin") {
       const url = request.nextUrl.clone();
       url.pathname = "/admin/login";
       url.searchParams.set("error", "unauthorized");
@@ -68,34 +89,35 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  // 2. Protected Customer Account Routes
+  // ─── RULE 2: Customer Account Routes Protection & Admin Isolation ──────────────
+  // CRITICAL: Admin Must NOT Access Customer Portal as a Customer
   if (pathname.startsWith("/account")) {
-    if (!user) {
+    if (!authUser) {
       const url = request.nextUrl.clone();
       url.pathname = "/customer/login";
       url.searchParams.set("redirect", pathname);
       return NextResponse.redirect(url);
     }
-  }
 
-  // 3. Prevent logged-in users from getting stuck on login pages
-  if (user && pathname === "/admin/login") {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-
-    if (profile?.role === "admin") {
+    if (authRole === "admin") {
+      // Deny access and redirect to Admin operations center
       const url = request.nextUrl.clone();
       url.pathname = "/admin";
+      url.searchParams.set("notice", "admin_cannot_access_customer_portal");
       return NextResponse.redirect(url);
     }
   }
 
-  if (user && pathname === "/customer/login") {
+  // ─── RULE 3: Prevent Logged-in Users from Getting Stuck on Login Pages ──────────
+  if (authUser && pathname === "/admin/login" && authRole === "admin") {
     const url = request.nextUrl.clone();
-    url.pathname = "/shop";
+    url.pathname = "/admin";
+    return NextResponse.redirect(url);
+  }
+
+  if (authUser && pathname === "/customer/login" && authRole === "customer") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/account";
     return NextResponse.redirect(url);
   }
 

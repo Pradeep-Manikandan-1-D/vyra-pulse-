@@ -6,8 +6,15 @@ Handles UTF-8 BOM encoding and formats SQL inserts with ON CONFLICT DO UPDATE/NO
 import csv
 import os
 
-base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data'))
-output_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'supabase', 'seed.sql'))
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if os.path.exists(os.path.join(root_dir, 'Dataset')):
+    base_dir = os.path.join(root_dir, 'Dataset')
+elif os.path.exists(os.path.join(root_dir, 'Datasets')):
+    base_dir = os.path.join(root_dir, 'Datasets')
+else:
+    base_dir = os.path.join(root_dir, 'data')
+
+output_path = os.path.abspath(os.path.join(root_dir, 'supabase', 'seed.sql'))
 
 def escape_sql(val):
     if val is None:
@@ -96,13 +103,21 @@ for c in customers:
 lines.append("")
 
 # 6. ORDERS
+ORDER_STATUS_MAP = {
+    'placed': 'pending'
+}
+
 lines.append("-- 6. ORDERS (100 Historical Orders with Reconciled Financial Breakdowns)")
 with open(os.path.join(base_dir, 'orders.csv'), 'r', encoding='utf-8-sig') as f:
     orders = list(csv.DictReader(f))
 
 for o in orders:
-    # subtotal = order_total, discount = 0, delivery_fee = 0
     tot = float(o['order_total_inr'])
+    sub = float(o.get('subtotal_inr') or tot)
+    disc = float(o.get('discount_inr') or 0.0)
+    raw_status = (o.get('order_status') or '').strip().lower()
+    normalized_status = ORDER_STATUS_MAP.get(raw_status, raw_status)
+    raw_payment = (o.get('payment_status') or '').strip().lower() or 'pending'
     lines.append(
         f"INSERT INTO public.orders ("
         f"order_id, customer_id, ordered_at, order_day, order_time_local, "
@@ -113,8 +128,8 @@ for o in orders:
         f"{escape_sql(o['order_id'])}, {escape_sql(o['customer_id'])}, {escape_sql(o['ordered_at'])}, "
         f"{escape_sql(o['order_day'])}, {escape_sql(o['order_time_local'])}, {escape_sql(o['delivery_city'])}, "
         f"{escape_sql(o['delivery_state'])}, {escape_sql(o['delivery_postal_code'])}, {escape_sql(o['delivery_location'])}, "
-        f"{tot:.2f}, 0.00, 0.00, {tot:.2f}, {escape_sql(o['currency'])}, "
-        f"{escape_sql(o['order_status'])}, {escape_sql(o['payment_status'])}"
+        f"{sub:.2f}, {disc:.2f}, 0.00, {tot:.2f}, {escape_sql(o['currency'])}, "
+        f"{escape_sql(normalized_status)}, {escape_sql(raw_payment)}"
         f") ON CONFLICT (order_id) DO UPDATE SET "
         f"order_status = EXCLUDED.order_status, payment_status = EXCLUDED.payment_status;"
     )

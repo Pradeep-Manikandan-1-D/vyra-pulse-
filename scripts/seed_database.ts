@@ -4,6 +4,8 @@
  * Safe and idempotent: can be rerun without duplicating records.
  */
 
+import dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
 import fs from "fs";
 import path from "path";
 import { createClient } from "@supabase/supabase-js";
@@ -53,6 +55,13 @@ function parseCSV(content: string): Array<Record<string, string>> {
   return rows;
 }
 
+// Canonical order_status check constraint in PostgreSQL:
+// CHECK (order_status IN ('pending', 'processing', 'shipped', 'delivered', 'cancelled'))
+// Map historical raw CSV status 'placed' to canonical 'pending' ("Order Placed")
+const ORDER_STATUS_MAP: Record<string, string> = {
+  placed: "pending",
+};
+
 async function seed() {
   console.log("==================================================");
   console.log("VYRA PULSE — SUPABASE SEED RUNNER");
@@ -83,7 +92,14 @@ async function seed() {
     auth: { persistSession: false },
   });
 
-  const dataDir = path.resolve(process.cwd(), "data");
+  const dataDir = fs.existsSync(path.resolve(process.cwd(), "Dataset"))
+    ? path.resolve(process.cwd(), "Dataset")
+    : fs.existsSync(path.resolve(process.cwd(), "Datasets"))
+    ? path.resolve(process.cwd(), "Datasets")
+    : path.resolve(process.cwd(), "data");
+
+  const successes: string[] = [];
+  const errors: string[] = [];
 
   // 1. Seed Store Settings
   console.log("\n1. Seeding Store Settings...");
@@ -98,8 +114,13 @@ async function seed() {
     elite_tier_threshold_points: 1200,
     store_currency: "INR",
   });
-  if (settingsErr) console.warn("  Notice:", settingsErr.message);
-  else console.log("  ✓ Store settings upserted.");
+  if (settingsErr) {
+    console.error("  Error seeding store settings:", settingsErr.message);
+    errors.push(`Store Settings: ${settingsErr.message}`);
+  } else {
+    console.log("  ✓ Store settings upserted.");
+    successes.push("Store Settings");
+  }
 
   // 2. Seed Products
   console.log("\n2. Seeding Products (products.csv)...");
@@ -117,8 +138,13 @@ async function seed() {
   }));
 
   const { error: prodErr } = await supabase.from("products").upsert(productsPayload, { onConflict: "product_id" });
-  if (prodErr) console.error("  Error seeding products:", prodErr.message);
-  else console.log(`  ✓ ${productsPayload.length} products upserted.`);
+  if (prodErr) {
+    console.error("  Error seeding products:", prodErr.message);
+    errors.push(`Products: ${prodErr.message}`);
+  } else {
+    console.log(`  ✓ ${productsPayload.length} products upserted.`);
+    successes.push(`Products (${productsPayload.length} records)`);
+  }
 
   // 3. Seed Inventory
   console.log("\n3. Seeding Inventory (inventory.csv)...");
@@ -133,8 +159,13 @@ async function seed() {
   }));
 
   const { error: invErr } = await supabase.from("inventory").upsert(invPayload, { onConflict: "inventory_id" });
-  if (invErr) console.error("  Error seeding inventory:", invErr.message);
-  else console.log(`  ✓ ${invPayload.length} inventory records upserted.`);
+  if (invErr) {
+    console.error("  Error seeding inventory:", invErr.message);
+    errors.push(`Inventory: ${invErr.message}`);
+  } else {
+    console.log(`  ✓ ${invPayload.length} inventory records upserted.`);
+    successes.push(`Inventory (${invPayload.length} records)`);
+  }
 
   // 4. Seed Offers
   console.log("\n4. Seeding Offers (offers.csv)...");
@@ -151,8 +182,13 @@ async function seed() {
   }));
 
   const { error: offersErr } = await supabase.from("offers").upsert(offersPayload, { onConflict: "offer_id" });
-  if (offersErr) console.error("  Error seeding offers:", offersErr.message);
-  else console.log(`  ✓ ${offersPayload.length} offers upserted.`);
+  if (offersErr) {
+    console.error("  Error seeding offers:", offersErr.message);
+    errors.push(`Offers: ${offersErr.message}`);
+  } else {
+    console.log(`  ✓ ${offersPayload.length} offers upserted.`);
+    successes.push(`Offers (${offersPayload.length} records)`);
+  }
 
   // 5. Seed Customers & Initialize Wallets
   console.log("\n5. Seeding Customers (customers.csv)...");
@@ -169,76 +205,136 @@ async function seed() {
     registered_at: c.registered_at,
   }));
 
+  let customersSucceeded = false;
   const { error: custErr } = await supabase.from("customers").upsert(custPayload, { onConflict: "customer_id" });
-  if (custErr) console.error("  Error seeding customers:", custErr.message);
-  else console.log(`  ✓ ${custPayload.length} customers upserted.`);
+  if (custErr) {
+    console.error("  Error seeding customers:", custErr.message);
+    errors.push(`Customers: ${custErr.message}`);
+  } else {
+    customersSucceeded = true;
+    console.log(`  ✓ ${custPayload.length} customers upserted.`);
+    successes.push(`Customers (${custPayload.length} records)`);
+  }
 
-  const walletsPayload = custPayload.map((c) => ({
-    customer_id: c.customer_id,
-    points_balance: 0,
-  }));
-  const { error: walletErr } = await supabase.from("loyalty_wallets").upsert(walletsPayload, { onConflict: "customer_id" });
-  if (walletErr) console.warn("  Notice on wallets:", walletErr.message);
-  else console.log(`  ✓ ${walletsPayload.length} customer loyalty wallets initialized.`);
+  if (customersSucceeded) {
+    const walletsPayload = custPayload.map((c) => ({
+      customer_id: c.customer_id,
+      points_balance: 0,
+    }));
+    const { error: walletErr } = await supabase.from("loyalty_wallets").upsert(walletsPayload, { onConflict: "customer_id" });
+    if (walletErr) {
+      console.warn("  Error initializing wallets:", walletErr.message);
+      errors.push(`Loyalty Wallets: ${walletErr.message}`);
+    } else {
+      console.log(`  ✓ ${walletsPayload.length} customer loyalty wallets initialized.`);
+      successes.push(`Loyalty Wallets (${walletsPayload.length} records)`);
+    }
+  } else {
+    console.warn("  [SKIP] Skipping loyalty wallets initialization because customers failed to seed.");
+    errors.push("Loyalty Wallets: Skipped due to customer seeding failure");
+  }
 
   // 6. Seed Orders
   console.log("\n6. Seeding Orders (orders.csv)...");
-  const ordersRaw = parseCSV(fs.readFileSync(path.join(dataDir, "orders.csv"), "utf-8"));
-  const ordersPayload = ordersRaw.map((o) => {
-    const tot = parseFloat(o.order_total_inr);
-    return {
-      order_id: o.order_id,
-      customer_id: o.customer_id,
-      ordered_at: o.ordered_at,
-      order_day: o.order_day,
-      order_time_local: o.order_time_local,
-      delivery_city: o.delivery_city,
-      delivery_state: o.delivery_state,
-      delivery_postal_code: o.delivery_postal_code,
-      delivery_location: o.delivery_location,
-      subtotal_inr: tot,
-      discount_amount_inr: 0.0,
-      delivery_fee_inr: 0.0,
-      order_total_inr: tot,
-      currency: o.currency,
-      order_status: o.order_status,
-      payment_status: o.payment_status,
-    };
-  });
+  let ordersSucceeded = false;
 
-  const { error: ordersErr } = await supabase.from("orders").upsert(ordersPayload, { onConflict: "order_id" });
-  if (ordersErr) console.error("  Error seeding orders:", ordersErr.message);
-  else console.log(`  ✓ ${ordersPayload.length} orders upserted.`);
+  if (!customersSucceeded) {
+    console.warn("  [SKIP] Skipping orders seeding because customers failed to seed.");
+    errors.push("Orders: Skipped due to customer seeding failure");
+  } else {
+    const ordersRaw = parseCSV(fs.readFileSync(path.join(dataDir, "orders.csv"), "utf-8"));
+    const ordersPayload = ordersRaw.map((o) => {
+      const tot = parseFloat(o.order_total_inr);
+      const rawStatus = (o.order_status ?? "").trim().toLowerCase();
+      const normalizedStatus = ORDER_STATUS_MAP[rawStatus] || rawStatus;
+      const rawPayment = (o.payment_status ?? "").trim().toLowerCase();
+      const paymentStatus = rawPayment || "pending";
 
-  // 7. Seed Order Items
+      return {
+        order_id: o.order_id,
+        customer_id: o.customer_id,
+        ordered_at: o.ordered_at,
+        order_day: o.order_day,
+        order_time_local: o.order_time_local,
+        delivery_city: o.delivery_city,
+        delivery_state: o.delivery_state,
+        delivery_postal_code: o.delivery_postal_code,
+        delivery_location: o.delivery_location,
+        subtotal_inr: o.subtotal_inr ? parseFloat(o.subtotal_inr) : tot,
+        discount_amount_inr: o.discount_inr ? parseFloat(o.discount_inr) : 0.0,
+        delivery_fee_inr: 0.0,
+        order_total_inr: tot,
+        currency: o.currency || "INR",
+        order_status: normalizedStatus,
+        payment_status: paymentStatus,
+      };
+    });
+
+    const { error: ordersErr } = await supabase.from("orders").upsert(ordersPayload, { onConflict: "order_id" });
+    if (ordersErr) {
+      console.error("  Error seeding orders:", ordersErr.message);
+      errors.push(`Orders: ${ordersErr.message}`);
+    } else {
+      ordersSucceeded = true;
+      console.log(`  ✓ ${ordersPayload.length} orders upserted.`);
+      successes.push(`Orders (${ordersPayload.length} records)`);
+    }
+  }
+
+  // 7. Seed Order Items (strictly dependent on orders succeeding)
   console.log("\n7. Seeding Order Items (order_items.csv)...");
-  const itemsRaw = parseCSV(fs.readFileSync(path.join(dataDir, "order_items.csv"), "utf-8"));
-  const prodMap = new Map(productsRaw.map((p) => [p.product_id, p]));
+  if (!ordersSucceeded) {
+    console.warn("  [SKIP] Skipping order items insertion because orders were not successfully seeded.");
+    errors.push("Order Items: Skipped due to orders seeding failure");
+  } else {
+    const itemsRaw = parseCSV(fs.readFileSync(path.join(dataDir, "order_items.csv"), "utf-8"));
+    const prodMap = new Map(productsRaw.map((p) => [p.product_id, p]));
 
-  const itemsPayload = itemsRaw.map((it) => {
-    const p = prodMap.get(it.product_id);
-    return {
-      order_item_id: it.order_item_id,
-      order_id: it.order_id,
-      product_id: it.product_id,
-      quantity: parseInt(it.quantity, 10),
-      unit_price_inr: parseFloat(it.unit_price_inr),
-      line_total_inr: parseFloat(it.line_total_inr),
-      product_name_snapshot: p ? p.product_name : "Vyra Pulse",
-      flavor_snapshot: p ? p.flavor : "Signature",
-    };
-  });
+    const itemsPayload = itemsRaw.map((it) => {
+      const p = prodMap.get(it.product_id);
+      return {
+        order_item_id: it.order_item_id,
+        order_id: it.order_id,
+        product_id: it.product_id,
+        quantity: parseInt(it.quantity, 10),
+        unit_price_inr: parseFloat(it.unit_price_inr),
+        line_total_inr: parseFloat(it.line_total_inr),
+        product_name_snapshot: p ? p.product_name : "Vyra Pulse",
+        flavor_snapshot: p ? p.flavor : "Signature",
+      };
+    });
 
-  const { error: itemsErr } = await supabase.from("order_items").upsert(itemsPayload, { onConflict: "order_item_id" });
-  if (itemsErr) console.error("  Error seeding order items:", itemsErr.message);
-  else console.log(`  ✓ ${itemsPayload.length} order items upserted.`);
+    const { error: itemsErr } = await supabase.from("order_items").upsert(itemsPayload, { onConflict: "order_item_id" });
+    if (itemsErr) {
+      console.error("  Error seeding order items:", itemsErr.message);
+      errors.push(`Order Items: ${itemsErr.message}`);
+    } else {
+      console.log(`  ✓ ${itemsPayload.length} order items upserted.`);
+      successes.push(`Order Items (${itemsPayload.length} records)`);
+    }
+  }
 
+  // 8. Seeding Summary and Exit Code
   console.log("\n==================================================");
-  console.log("SEEDED ALL DATASETS SUCCESSFULLY!");
+  console.log("VYRA PULSE — DATABASE SEEDING SUMMARY");
   console.log("==================================================");
+  if (successes.length > 0) {
+    console.log("Successful operations:");
+    successes.forEach((s) => console.log(`  ✓ ${s}`));
+  }
+  if (errors.length > 0) {
+    console.log("\nFailed / skipped operations:");
+    errors.forEach((e) => console.error(`  ✗ ${e}`));
+    console.log("\n[FAILED] Seeding completed with errors across 1 or more datasets.");
+    console.log("==================================================");
+    process.exit(1);
+  } else {
+    console.log("\n[SUCCESS] SEEDED ALL DATASETS SUCCESSFULLY!");
+    console.log("==================================================");
+  }
 }
 
 seed().catch((err) => {
-  console.error("Seed execution failed:", err);
+  console.error("Seed execution failed with uncaught exception:", err);
   process.exit(1);
 });

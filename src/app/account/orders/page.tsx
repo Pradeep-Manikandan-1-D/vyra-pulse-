@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useCart } from "@/components/cart/CartProvider";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { getCustomerOrders, getCustomerByEmail } from "@/lib/customer/data";
 
 interface CustomerOrderItem {
   product_id?: string;
@@ -66,10 +67,29 @@ export default function CustomerOrdersPage() {
   useEffect(() => {
     async function loadOrders() {
       setIsLoading(true);
+      if (!user) {
+        setOrders([]);
+        setIsLoading(false);
+        return;
+      }
+
+      const customerCode =
+        profile?.customer_id ||
+        (user.email ? getCustomerByEmail(user.email)?.customer_id : null) ||
+        user.id;
+
       const supabase = createClient();
 
-      if (supabase && isSupabaseConfigured() && user) {
+      if (supabase && isSupabaseConfigured()) {
         try {
+          const { data: custRecord } = await supabase
+            .from("customers")
+            .select("customer_id")
+            .or(`user_id.eq.${user.id},email.eq.${user.email}`)
+            .single();
+
+          const activeId = custRecord?.customer_id || customerCode;
+
           const { data, error } = await supabase
             .from("orders")
             .select(`
@@ -83,10 +103,10 @@ export default function CustomerOrdersPage() {
                 line_total
               )
             `)
-            .eq("customer_id", user.id)
+            .eq("customer_id", activeId)
             .order("created_at", { ascending: false });
 
-          if (!error && data && data.length > 0) {
+          if (!error && data) {
             setOrders(
               data.map((o) => ({
                 ...o,
@@ -101,69 +121,16 @@ export default function CustomerOrdersPage() {
         }
       }
 
-      // Demo mode / offline localStorage fallback
-      try {
-        const stored = localStorage.getItem("vyra_demo_orders");
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setOrders(parsed);
-            setIsLoading(false);
-            return;
-          }
-        }
-      } catch (err) {
-        console.warn("Could not read local orders:", err);
-      }
-
-      // Default sample order so the UI is immediately demonstrable
-      const defaultSampleOrders: CustomerOrder[] = [
-        {
-          id: "ord-sample-01",
-          order_code: "ORD-VP-7821",
-          order_status: "delivered",
-          payment_status: "paid",
-          subtotal: 596,
-          discount_amount: 59.6,
-          delivery_fee: 0,
-          total_amount: 536.4,
-          delivery_city: "Bengaluru",
-          delivery_state: "Karnataka",
-          delivery_address: "14/2 Indiranagar 100ft Road, Bengaluru, Karnataka - 560038",
-          recipient_name: user?.email ? user.email.split("@")[0] : "Vyra Athlete",
-          recipient_phone: "+91 98765 43210",
-          offer_code: "VPULSE10",
-          points_earned: 40,
-          created_at: new Date(Date.now() - 3 * 86400000).toISOString(),
-          items: [
-            {
-              product_id: "VP-CIT-001",
-              product_name_snapshot: "Vyra Pulse Electric Citrus",
-              flavor_snapshot: "Electric Citrus",
-              quantity: 2,
-              unit_price: 149,
-              line_total: 298,
-            },
-            {
-              product_id: "VP-BER-002",
-              product_name_snapshot: "Vyra Pulse Midnight Berry",
-              flavor_snapshot: "Midnight Berry",
-              quantity: 2,
-              unit_price: 149,
-              line_total: 298,
-            },
-          ],
-        },
-      ];
-
-      setOrders(defaultSampleOrders);
+      // Strict isolated customer orders lookup
+      const custOrders = getCustomerOrders(customerCode);
+      setOrders(custOrders as any);
       setIsLoading(false);
     }
 
     if (!authLoading) {
       loadOrders();
     }
-  }, [user, authLoading]);
+  }, [user, profile?.customer_id, authLoading]);
 
   const filteredOrders = orders.filter((o) => {
     if (filter === "in_transit") {
@@ -178,13 +145,13 @@ export default function CustomerOrdersPage() {
   const getStatusBadge = (status: CustomerOrder["order_status"]) => {
     switch (status) {
       case "delivered":
-        return <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Delivered</Badge>;
+        return <Badge className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border-emerald-500/30">Delivered</Badge>;
       case "shipped":
-        return <Badge className="bg-sky-500/20 text-sky-400 border-sky-500/30">Shipped / In Transit</Badge>;
+        return <Badge className="bg-sky-500/20 text-sky-700 dark:text-sky-400 border-sky-500/30">Shipped / In Transit</Badge>;
       case "processing":
-        return <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">Processing</Badge>;
+        return <Badge className="bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/30">Processing</Badge>;
       case "cancelled":
-        return <Badge className="bg-rose-500/20 text-rose-400 border-rose-500/30">Cancelled</Badge>;
+        return <Badge className="bg-rose-500/20 text-rose-700 dark:text-rose-400 border-rose-500/30">Cancelled</Badge>;
       default:
         return <Badge variant="outline">Pending</Badge>;
     }
@@ -200,7 +167,7 @@ export default function CustomerOrdersPage() {
         price: item.unit_price || 149,
         quantity: item.quantity || 1,
         image_path: "/assets/products/Drinks.png",
-        accentColor: "#00FF66",
+        accentColor: "var(--primary)",
       });
     });
   };
@@ -213,7 +180,7 @@ export default function CustomerOrdersPage() {
           <div className="flex items-center gap-2 mb-1.5">
             <Badge variant="default" className="text-[11px]">Customer Dashboard</Badge>
             {user ? (
-              <span className="text-xs text-[#00FF66] font-mono">
+              <span className="text-xs text-primary font-mono">
                 {user.email}
               </span>
             ) : (
@@ -245,12 +212,12 @@ export default function CustomerOrdersPage() {
 
       {/* Filter Tabs & Quick KPI */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-2 bg-muted/30 p-1 rounded-xl border border-border/40 text-xs">
+        <div className="neu-inset flex items-center gap-1.5 p-1.5 rounded-xl border border-border/40 text-xs">
           <button
             onClick={() => setFilter("all")}
             className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
               filter === "all"
-                ? "bg-[#00FF66] text-black font-bold shadow-sm"
+                ? "neu-btn-primary font-bold shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -260,7 +227,7 @@ export default function CustomerOrdersPage() {
             onClick={() => setFilter("in_transit")}
             className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
               filter === "in_transit"
-                ? "bg-[#00FF66] text-black font-bold shadow-sm"
+                ? "neu-btn-primary font-bold shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -270,7 +237,7 @@ export default function CustomerOrdersPage() {
             onClick={() => setFilter("delivered")}
             className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
               filter === "delivered"
-                ? "bg-[#00FF66] text-black font-bold shadow-sm"
+                ? "neu-btn-primary font-bold shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -285,13 +252,13 @@ export default function CustomerOrdersPage() {
 
       {/* Orders List */}
       {isLoading ? (
-        <Card className="p-12 text-center text-muted-foreground">
-          <Clock className="w-8 h-8 mx-auto mb-3 animate-spin text-[#00FF66]" />
+        <Card className="neu-card p-12 text-center text-muted-foreground">
+          <Clock className="w-8 h-8 mx-auto mb-3 animate-spin text-primary" />
           <p className="text-sm">Loading your orders...</p>
         </Card>
       ) : filteredOrders.length === 0 ? (
-        <Card className="p-12 text-center space-y-4 border-dashed border-white/20">
-          <div className="w-14 h-14 rounded-full bg-[#00FF66]/10 text-[#00FF66] mx-auto flex items-center justify-center">
+        <Card className="neu-card p-12 text-center space-y-4 border-dashed border-border/60">
+          <div className="w-14 h-14 rounded-full bg-primary/10 text-primary mx-auto flex items-center justify-center">
             <Package className="w-7 h-7" />
           </div>
           <div className="space-y-1">
@@ -315,10 +282,10 @@ export default function CustomerOrdersPage() {
             return (
               <Card
                 key={order.id}
-                className="overflow-hidden border-border/50 hover:border-white/20 transition-all bg-card/60 backdrop-blur-sm"
+                className="neu-card overflow-hidden transition-all"
               >
                 {/* Order Top Ribbon */}
-                <div className="bg-muted/40 px-5 py-4 flex flex-wrap items-center justify-between gap-3 border-b border-border/40">
+                <div className="bg-surface-inset px-5 py-4 flex flex-wrap items-center justify-between gap-3 border-b border-border">
                   <div className="flex flex-wrap items-center gap-4">
                     <div>
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Order Reference</p>
@@ -342,13 +309,13 @@ export default function CustomerOrdersPage() {
 
                     <div>
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Amount</p>
-                      <p className="text-sm font-extrabold text-[#00FF66]">₹{Number(order.total_amount).toFixed(2)}</p>
+                      <p className="text-sm font-extrabold text-primary font-mono">₹{Number(order.total_amount).toFixed(2)}</p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2">
                     {getStatusBadge(order.order_status)}
-                    <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-white/5 border border-white/10 text-muted-foreground">
+                    <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-surface border border-border text-muted-foreground">
                       {order.payment_status}
                     </span>
                   </div>
@@ -360,7 +327,7 @@ export default function CustomerOrdersPage() {
                     {items.map((item, idx) => (
                       <div key={idx} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-black border border-white/10 flex items-center justify-center font-bold text-xs text-[#00FF66]">
+                          <div className="neu-raised-sm w-10 h-10 rounded-lg border border-border/40 flex items-center justify-center font-bold text-xs text-primary font-mono">
                             {item.quantity}x
                           </div>
                           <div>
@@ -385,7 +352,7 @@ export default function CustomerOrdersPage() {
                   <div className="pt-4 border-t border-border/30 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                     <div className="space-y-1">
                       <p className="text-[11px] font-semibold text-foreground flex items-center gap-1.5">
-                        <MapPin className="w-3.5 h-3.5 text-[#00FF66]" />
+                        <MapPin className="w-3.5 h-3.5 text-primary" />
                         Delivery Destination
                       </p>
                       <p className="text-muted-foreground">
@@ -400,7 +367,7 @@ export default function CustomerOrdersPage() {
 
                     <div className="space-y-1 sm:text-right">
                       <p className="text-[11px] font-semibold text-foreground flex items-center sm:justify-end gap-1.5">
-                        <CreditCard className="w-3.5 h-3.5 text-[#00FF66]" />
+                        <CreditCard className="w-3.5 h-3.5 text-primary" />
                         Order Breakdown
                       </p>
                       <p className="text-muted-foreground">
@@ -408,7 +375,7 @@ export default function CustomerOrdersPage() {
                         {Number(order.discount_amount) > 0 && ` | Discount: -₹${Number(order.discount_amount).toFixed(2)}`}
                         {Number(order.delivery_fee) > 0 ? ` | Delivery: ₹${order.delivery_fee}` : " | Free Delivery"}
                       </p>
-                      <p className="text-[#00FF66] font-medium text-[11px]">
+                      <p className="text-primary font-medium text-[11px]">
                         +{order.points_earned || canCount * 10} Pulse Points Earned
                       </p>
                     </div>
@@ -447,11 +414,11 @@ export default function CustomerOrdersPage() {
 
       {/* Tax Receipt Modal */}
       {selectedReceiptOrder && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <Card className="max-w-lg w-full p-6 space-y-6 border-white/20 bg-background">
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <Card className="neu-card max-w-lg w-full p-6 space-y-6 border border-border/50 bg-surface shadow-2xl">
             <div className="flex items-center justify-between border-b border-border/40 pb-4">
               <div>
-                <p className="text-xs text-[#00FF66] font-mono uppercase font-bold">Tax Invoice / Receipt</p>
+                <p className="text-xs text-primary font-mono uppercase font-bold">Tax Invoice / Receipt</p>
                 <h3 className="text-xl font-extrabold text-foreground">{selectedReceiptOrder.order_code}</h3>
               </div>
               <button
@@ -510,7 +477,7 @@ export default function CustomerOrdersPage() {
                 </div>
                 <div className="flex justify-between text-sm font-extrabold text-foreground border-t border-border/40 pt-2">
                   <span>Grand Total (Incl. GST)</span>
-                  <span className="font-mono text-[#00FF66]">₹{Number(selectedReceiptOrder.total_amount).toFixed(2)}</span>
+                  <span className="font-mono text-primary font-bold">₹{Number(selectedReceiptOrder.total_amount).toFixed(2)}</span>
                 </div>
               </div>
             </div>

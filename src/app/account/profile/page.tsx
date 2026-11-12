@@ -19,6 +19,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { getCustomerProfile, saveCustomerProfile, getCustomerByEmail } from "@/lib/customer/data";
 
 export default function CustomerProfilePage() {
   const { user, profile, isLoading: authLoading } = useAuth();
@@ -36,29 +37,39 @@ export default function CustomerProfilePage() {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (user) {
-      setForm((prev) => ({
-        ...prev,
-        fullName: profile?.display_name || user.email?.split("@")[0] || "Vyra Athlete",
-      }));
-    }
-    // Load from local storage if saved previously
-    try {
-      const stored = localStorage.getItem("vyra_customer_profile");
-      if (stored) {
-        setForm((prev) => ({ ...prev, ...JSON.parse(stored) }));
-      }
-    } catch (e) {
-      console.warn("Could not load local customer profile", e);
-    }
+    if (!user) return;
+    const customerCode =
+      profile?.customer_id ||
+      (user.email ? getCustomerByEmail(user.email)?.customer_id : null) ||
+      user.id;
+
+    const prof = getCustomerProfile(customerCode);
+    setForm({
+      fullName: prof.fullName,
+      phone: prof.phone,
+      city: prof.city,
+      state: prof.state,
+      addressLine: prof.addressLine,
+      pincode: prof.pincode,
+    });
   }, [user, profile]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
 
+    if (!user) {
+      setIsSaving(false);
+      return;
+    }
+
+    const customerCode =
+      profile?.customer_id ||
+      (user.email ? getCustomerByEmail(user.email)?.customer_id : null) ||
+      user.id;
+
     const supabase = createClient();
-    if (supabase && isSupabaseConfigured() && user) {
+    if (supabase && isSupabaseConfigured()) {
       try {
         await supabase
           .from("profiles")
@@ -68,23 +79,21 @@ export default function CustomerProfilePage() {
         await supabase
           .from("customers")
           .update({
-            full_name: form.fullName,
+            first_name: form.fullName.split(" ")[0] || form.fullName,
+            last_name: form.fullName.split(" ").slice(1).join(" ") || "",
             phone: form.phone,
             city: form.city,
             state: form.state,
-            pincode: form.pincode,
+            postal_code: form.pincode,
           })
-          .eq("id", user.id);
+          .or(`user_id.eq.${user.id},email.eq.${user.email}`);
       } catch (err) {
         console.warn("Error updating profile in Supabase:", err);
       }
     }
 
-    try {
-      localStorage.setItem("vyra_customer_profile", JSON.stringify(form));
-    } catch (e) {
-      console.warn("Could not write local customer profile", e);
-    }
+    // Save to isolated customer profile storage
+    saveCustomerProfile(customerCode, form);
 
     setTimeout(() => {
       setIsSaving(false);
@@ -128,8 +137,8 @@ export default function CustomerProfilePage() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Left Column: Profile Card */}
-        <Card className="p-6 space-y-4 border-white/10 h-fit">
-          <div className="w-16 h-16 rounded-full bg-[#00FF66]/10 border border-[#00FF66]/30 text-[#00FF66] flex items-center justify-center text-xl font-bold mx-auto">
+        <Card className="neu-card p-6 space-y-4 h-fit">
+          <div className="neu-raised-sm w-16 h-16 rounded-full border border-primary/30 text-primary flex items-center justify-center text-xl font-bold mx-auto">
             {form.fullName.slice(0, 2).toUpperCase() || "VP"}
           </div>
 
@@ -141,7 +150,7 @@ export default function CustomerProfilePage() {
           <div className="pt-2 border-t border-border/30 space-y-2 text-xs">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Account Status</span>
-              <span className="text-[#00FF66] font-semibold flex items-center gap-1">
+              <span className="text-primary font-semibold flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Active
               </span>
             </div>
@@ -158,14 +167,14 @@ export default function CustomerProfilePage() {
 
         {/* Right Column: Edit Form */}
         <div className="md:col-span-2 space-y-6">
-          <Card className="p-6 border-white/10 space-y-6">
+          <Card className="neu-card p-6 space-y-6">
             <div className="flex items-center justify-between border-b border-border/30 pb-4">
               <h3 className="font-bold text-foreground flex items-center gap-2">
-                <User className="w-4 h-4 text-[#00FF66]" />
+                <User className="w-4 h-4 text-primary" />
                 Personal Information
               </h3>
               {isSaved && (
-                <span className="text-xs text-[#00FF66] font-medium flex items-center gap-1">
+                <span className="text-xs text-primary font-medium flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5" /> Details Saved!
                 </span>
               )}
@@ -179,7 +188,7 @@ export default function CustomerProfilePage() {
                     type="text"
                     value={form.fullName}
                     onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-                    className="w-full px-3 py-2 text-xs rounded-lg bg-background border border-border focus:border-[#00FF66] focus:outline-none transition-colors"
+                    className="neu-inset w-full px-3 py-2 text-xs rounded-xl bg-surface border border-border/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all text-foreground"
                     placeholder="E.g. Rahul Sharma"
                     required
                   />
@@ -191,7 +200,7 @@ export default function CustomerProfilePage() {
                     type="tel"
                     value={form.phone}
                     onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                    className="w-full px-3 py-2 text-xs rounded-lg bg-background border border-border focus:border-[#00FF66] focus:outline-none transition-colors"
+                    className="neu-inset w-full px-3 py-2 text-xs rounded-xl bg-surface border border-border/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all text-foreground"
                     placeholder="+91 98765 43210"
                   />
                 </div>
@@ -203,16 +212,16 @@ export default function CustomerProfilePage() {
                   type="email"
                   value={user?.email || "demo.customer@vyrapulse.com"}
                   disabled
-                  className="w-full px-3 py-2 text-xs rounded-lg bg-muted/40 border border-border/40 text-muted-foreground cursor-not-allowed font-mono"
+                  className="neu-inset w-full px-3 py-2 text-xs rounded-xl bg-surface-inset border border-border/40 text-muted-foreground cursor-not-allowed font-mono opacity-80"
                 />
                 <p className="text-[10px] text-muted-foreground">
-                  Email is locked to your Supabase Auth credentials.
+                  Email is locked to your authenticated credentials.
                 </p>
               </div>
 
               <div className="pt-4 border-t border-border/30">
                 <h4 className="font-bold text-foreground text-xs flex items-center gap-2 mb-3">
-                  <MapPin className="w-3.5 h-3.5 text-[#00FF66]" />
+                  <MapPin className="w-3.5 h-3.5 text-primary" />
                   Default Delivery Address
                 </h4>
 
@@ -223,7 +232,7 @@ export default function CustomerProfilePage() {
                       type="text"
                       value={form.addressLine}
                       onChange={(e) => setForm({ ...form, addressLine: e.target.value })}
-                      className="w-full px-3 py-2 text-xs rounded-lg bg-background border border-border focus:border-[#00FF66] focus:outline-none transition-colors"
+                      className="neu-inset w-full px-3 py-2 text-xs rounded-xl bg-surface border border-border/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all text-foreground"
                       placeholder="Flat / House / Building / Street"
                     />
                   </div>
@@ -235,7 +244,7 @@ export default function CustomerProfilePage() {
                         type="text"
                         value={form.city}
                         onChange={(e) => setForm({ ...form, city: e.target.value })}
-                        className="w-full px-3 py-2 text-xs rounded-lg bg-background border border-border focus:border-[#00FF66] focus:outline-none transition-colors"
+                        className="neu-inset w-full px-3 py-2 text-xs rounded-xl bg-surface border border-border/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all text-foreground"
                         placeholder="Bengaluru"
                       />
                     </div>
@@ -246,7 +255,7 @@ export default function CustomerProfilePage() {
                         type="text"
                         value={form.state}
                         onChange={(e) => setForm({ ...form, state: e.target.value })}
-                        className="w-full px-3 py-2 text-xs rounded-lg bg-background border border-border focus:border-[#00FF66] focus:outline-none transition-colors"
+                        className="neu-inset w-full px-3 py-2 text-xs rounded-xl bg-surface border border-border/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all text-foreground"
                         placeholder="Karnataka"
                       />
                     </div>
@@ -257,7 +266,7 @@ export default function CustomerProfilePage() {
                         type="text"
                         value={form.pincode}
                         onChange={(e) => setForm({ ...form, pincode: e.target.value })}
-                        className="w-full px-3 py-2 text-xs rounded-lg bg-background border border-border focus:border-[#00FF66] focus:outline-none transition-colors font-mono"
+                        className="neu-inset w-full px-3 py-2 text-xs rounded-xl bg-surface border border-border/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all text-foreground font-mono"
                         placeholder="560038"
                       />
                     </div>
@@ -266,7 +275,7 @@ export default function CustomerProfilePage() {
               </div>
 
               <div className="flex justify-end pt-3">
-                <Button type="submit" size="sm" disabled={isSaving} className="gap-2 text-xs">
+                <Button type="submit" size="sm" variant="primary" disabled={isSaving} className="gap-2 text-xs">
                   <Save className="w-3.5 h-3.5" />
                   {isSaving ? "Saving..." : "Save Preferences"}
                 </Button>

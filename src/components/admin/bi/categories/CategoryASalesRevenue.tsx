@@ -15,6 +15,7 @@ import {
   Cell,
   PieChart,
   Pie,
+  LabelList,
 } from "recharts";
 import { ArrowRight, TrendingUp, DollarSign } from "lucide-react";
 import { FullBIDataset } from "@/lib/bi/types";
@@ -77,7 +78,7 @@ export function CategoryASalesRevenue({
         {/* 1. Revenue Trend (Line / Bar) */}
         <BIChartCard
           title="1. Revenue & Gross Sales Trend"
-          subtitle="Chronological net sales vs discount reductions over selected period"
+          subtitle="Chronological net sales trend over selected period"
           definition="Net Sales = Gross Subtotal minus coupon discounts. Excludes cancelled orders."
           supportedTypes={["line", "bar"]}
           currentType={trendChartType}
@@ -98,7 +99,6 @@ export function CategoryASalesRevenue({
                 <Tooltip content={<BIHighContrastTooltip valuePrefix="₹" />} />
                 <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "8px" }} />
                 <Line type="monotone" dataKey="netSales" name="Net Sales" stroke="#00FF66" strokeWidth={2.5} dot={{ r: 3 }} />
-                <Line type="monotone" dataKey="discounts" name="Discounts" stroke="#F43F5E" strokeWidth={1.5} strokeDasharray="4 2" />
               </LineChart>
             ) : (
               <BarChart data={salesRevenue.revenueTrends} margin={{ top: 10, right: 10, bottom: 0, left: -10 }}>
@@ -108,7 +108,6 @@ export function CategoryASalesRevenue({
                 <Tooltip content={<BIHighContrastTooltip valuePrefix="₹" />} />
                 <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "8px" }} />
                 <Bar dataKey="netSales" name="Net Sales" fill="#00FF66" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="discounts" name="Discounts" fill="#F43F5E" radius={[4, 4, 0, 0]} />
               </BarChart>
             )}
           </ResponsiveContainer>
@@ -176,27 +175,120 @@ export function CategoryASalesRevenue({
         {/* 4. Revenue Contribution by Product */}
         <BIChartCard
           title="4. Revenue Contribution by Product"
-          subtitle="Ranked share of gross revenue across all 8 bio-enhanced formulas"
-          definition="Sum of line_total_inr grouped by product_id."
+          subtitle="Ranked share of net recognized revenue across all 8 formulas"
+          definition="Sum of line_total_inr grouped by product_id (excluding cancelled orders)."
           onDrilldown={() => onDrilldown("product", "all", "Product Sales Breakdown")}
         >
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={salesRevenue.productContributions}
-              layout="vertical"
-              margin={{ top: 0, right: 20, bottom: 0, left: 10 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
-              <XAxis type="number" tick={{ fill: "#71717A", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${v}`} />
-              <YAxis type="category" dataKey="name" tick={{ fill: "#D4D4D8", fontSize: 10 }} axisLine={false} tickLine={false} width={100} />
-              <Tooltip content={<BIHighContrastTooltip valuePrefix="₹" />} />
-              <Bar dataKey="revenue" name="Revenue" radius={[0, 4, 4, 0]}>
-                {salesRevenue.productContributions.map((p, idx) => (
-                  <Cell key={idx} fill={p.color} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          {(() => {
+            const allContributions = salesRevenue.productContributions;
+            if (allContributions.length === 0) {
+              return (
+                <div className="h-64 flex flex-col items-center justify-center text-center p-6 space-y-2">
+                  <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-muted-foreground">
+                    <DollarSign className="w-5 h-5 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">No Products Found</p>
+                  <p className="text-xs text-muted-foreground max-w-xs">
+                    Product catalog could not be loaded.
+                  </p>
+                </div>
+              );
+            }
+            return (
+              <ResponsiveContainer width="100%" height={360}>
+                <BarChart
+                  data={allContributions}
+                  layout="vertical"
+                  margin={{ top: 12, right: 120, bottom: 5, left: 15 }}
+                  barSize={20}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                  <XAxis
+                    type="number"
+                    tick={{ fill: "#71717A", fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => `₹${v.toLocaleString("en-IN")}`}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    tick={{ fill: "#D4D4D8", fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={130}
+                  />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const item = payload[0].payload;
+                      const isZero = item.revenue === 0;
+                      return (
+                        <div className="bg-[#18181b] border border-white/20 rounded-xl p-3 text-xs shadow-2xl space-y-1.5 text-white backdrop-blur-xl">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm"
+                              style={{ backgroundColor: item.color }}
+                            />
+                            <p className="font-bold text-[#00FF66] font-mono">{item.name} ({item.flavor})</p>
+                          </div>
+                          {isZero ? (
+                            <p className="text-neutral-400 italic">
+                              Status: <span className="text-neutral-300 font-mono">No recorded sales in active period</span>
+                            </p>
+                          ) : (
+                            <>
+                              <p className="text-neutral-300">
+                                Recognized Revenue:{" "}
+                                <span className="font-bold text-white font-mono">
+                                  ₹{item.revenue.toLocaleString("en-IN")}
+                                </span>
+                              </p>
+                              <p className="text-neutral-300">
+                                Recognized Units Sold:{" "}
+                                <span className="font-bold text-white font-mono">{item.units} cans</span>
+                              </p>
+                              <p className="text-neutral-300">
+                                Portfolio Topline Share:{" "}
+                                <span className="font-bold text-[#00E5FF] font-mono">{item.sharePct}%</span>
+                              </p>
+                            </>
+                          )}
+                        </div>
+                      );
+                    }}
+                  />
+                  <Bar dataKey="revenue" name="Revenue" radius={[0, 4, 4, 0]}>
+                    {allContributions.map((p, idx) => (
+                      <Cell key={idx} fill={p.color} />
+                    ))}
+                    <LabelList
+                      dataKey="revenue"
+                      position="right"
+                      content={(props: any) => {
+                        const { x, y, width, height, value } = props;
+                        const numVal = Number(value) || 0;
+                        const isZero = numVal === 0;
+                        return (
+                          <text
+                            x={Number(x) + Number(width) + 8}
+                            y={Number(y) + Number(height) / 2 + 4}
+                            fill={isZero ? "#71717A" : "#F5F7F4"}
+                            fontSize={isZero ? 10 : 11}
+                            fontStyle={isZero ? "italic" : "normal"}
+                            fontFamily={isZero ? "monospace" : "inherit"}
+                            fontWeight={isZero ? 400 : 600}
+                          >
+                            {isZero ? "No recorded sales" : `₹${numVal.toLocaleString("en-IN")}`}
+                          </text>
+                        );
+                      }}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            );
+          })()}
         </BIChartCard>
 
         {/* Expanded View Only Charts (5 through 10) */}

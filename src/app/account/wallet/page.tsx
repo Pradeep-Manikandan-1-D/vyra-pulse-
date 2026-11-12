@@ -20,6 +20,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { getCustomerWallet, getCustomerByEmail } from "@/lib/customer/data";
 
 interface LoyaltyTx {
   id: string;
@@ -31,42 +32,58 @@ interface LoyaltyTx {
 }
 
 export default function CustomerWalletPage() {
-  const { user, isLoading: authLoading } = useAuth();
-  const [balance, setBalance] = useState<number>(140);
-  const [lifetimeEarned, setLifetimeEarned] = useState<number>(140);
+  const { user, profile, isLoading: authLoading } = useAuth();
+  const [balance, setBalance] = useState<number>(0);
+  const [lifetimeEarned, setLifetimeEarned] = useState<number>(0);
   const [transactions, setTransactions] = useState<LoyaltyTx[]>([]);
   const [claimedPerk, setClaimedPerk] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadWallet() {
+      if (!user) return;
+
+      const customerCode =
+        profile?.customer_id ||
+        (user.email ? getCustomerByEmail(user.email)?.customer_id : null) ||
+        user.id;
+
       const supabase = createClient();
 
-      if (supabase && isSupabaseConfigured() && user) {
+      if (supabase && isSupabaseConfigured()) {
         try {
+          // Resolve customer_id from customers table
+          const { data: custRecord } = await supabase
+            .from("customers")
+            .select("customer_id")
+            .or(`user_id.eq.${user.id},email.eq.${user.email}`)
+            .single();
+
+          const activeId = custRecord?.customer_id || customerCode;
+
           const { data: walletData } = await supabase
             .from("loyalty_wallets")
             .select("*")
-            .eq("customer_id", user.id)
+            .eq("customer_id", activeId)
             .single();
 
           if (walletData) {
-            setBalance(walletData.balance || 0);
-            setLifetimeEarned(walletData.lifetime_earned || 0);
+            setBalance(walletData.points_balance || walletData.balance || 0);
+            setLifetimeEarned(walletData.lifetime_earned || walletData.points_balance || 0);
 
             const { data: txData } = await supabase
               .from("loyalty_transactions")
               .select("*")
-              .eq("wallet_id", walletData.id)
+              .eq("customer_id", activeId)
               .order("created_at", { ascending: false });
 
             if (txData && txData.length > 0) {
               setTransactions(
                 txData.map((t) => ({
-                  id: t.id,
+                  id: t.transaction_id || t.id,
                   order_id: t.order_id,
-                  transaction_type: t.transaction_type,
-                  points: t.points,
-                  description: t.description || "Pulse Points",
+                  transaction_type: t.transaction_type?.includes("redeem") ? "redeemed" : "earned",
+                  points: t.points_change || t.points || 0,
+                  description: t.reason || t.description || "Pulse Points",
                   created_at: t.created_at,
                 }))
               );
@@ -78,45 +95,17 @@ export default function CustomerWalletPage() {
         }
       }
 
-      // Check localStorage for demo wallet updates
-      try {
-        const stored = localStorage.getItem("vyra_demo_wallet");
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          setBalance(parsed.balance || 140);
-          setLifetimeEarned(parsed.lifetime || 140);
-          if (parsed.history && parsed.history.length > 0) {
-            setTransactions(parsed.history);
-            return;
-          }
-        }
-      } catch (err) {
-        console.warn("Could not read demo wallet:", err);
-      }
-
-      // Default sample ledger
-      setTransactions([
-        {
-          id: "tx-1",
-          transaction_type: "earned",
-          points: 40,
-          description: "Order ORD-VP-7821 points reward (4 cans)",
-          created_at: new Date(Date.now() - 3 * 86400000).toISOString(),
-        },
-        {
-          id: "tx-0",
-          transaction_type: "earned",
-          points: 100,
-          description: "Vyra Pulse Athlete Welcome Bonus",
-          created_at: new Date(Date.now() - 14 * 86400000).toISOString(),
-        },
-      ]);
+      // Strict isolated customer wallet lookup
+      const wallet = getCustomerWallet(customerCode);
+      setBalance(wallet.balance);
+      setLifetimeEarned(wallet.lifetime);
+      setTransactions(wallet.history);
     }
 
     if (!authLoading) {
       loadWallet();
     }
-  }, [user, authLoading]);
+  }, [user, profile?.customer_id, authLoading]);
 
   // Tier thresholds
   const HOODIE_THRESHOLD = 400;
@@ -134,7 +123,7 @@ export default function CustomerWalletPage() {
           <div className="flex items-center gap-2 mb-1.5">
             <Badge variant="default" className="text-[11px]">Pulse Rewards Ledger</Badge>
             {user ? (
-              <span className="text-xs text-[#00FF66] font-mono">{user.email}</span>
+              <span className="text-xs text-primary font-mono">{user.email}</span>
             ) : (
               <span className="text-xs text-muted-foreground font-mono">Demo Athlete Session</span>
             )}
@@ -164,29 +153,29 @@ export default function CustomerWalletPage() {
 
       {/* Wallet Balance Hero Card */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="p-6 space-y-3 border-[#00FF66]/40 bg-gradient-to-br from-[#00FF66]/10 via-background to-background relative overflow-hidden">
+        <Card className="neu-card kpi-tint-mint p-6 space-y-3 relative overflow-hidden border border-primary/30">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Available Balance
             </span>
-            <div className="w-8 h-8 rounded-full bg-[#00FF66]/20 text-[#00FF66] flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center">
               <Zap className="w-4 h-4 fill-current" />
             </div>
           </div>
           <div className="space-y-1">
-            <p className="text-4xl font-black text-[#00FF66] tracking-tight">{balance} <span className="text-sm font-bold text-foreground">PTS</span></p>
+            <p className="text-4xl font-black text-primary tracking-tight font-mono">{balance} <span className="text-sm font-bold text-foreground">PTS</span></p>
             <p className="text-[11px] text-muted-foreground">
               Equivalent to ₹{(balance * 0.25).toFixed(0)} store purchasing credit
             </p>
           </div>
         </Card>
 
-        <Card className="p-6 space-y-3 border-white/10">
+        <Card className="neu-card kpi-tint-sky p-6 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Lifetime Earned
             </span>
-            <div className="w-8 h-8 rounded-full bg-sky-500/10 text-sky-400 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
@@ -198,12 +187,12 @@ export default function CustomerWalletPage() {
           </div>
         </Card>
 
-        <Card className="p-6 space-y-3 border-white/10">
+        <Card className="neu-card kpi-tint-purple p-6 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Earning Rate
             </span>
-            <div className="w-8 h-8 rounded-full bg-purple-500/10 text-purple-400 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center">
               <Sparkles className="w-4 h-4" />
             </div>
           </div>
@@ -220,7 +209,7 @@ export default function CustomerWalletPage() {
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-            <Gift className="w-5 h-5 text-[#00FF66]" />
+            <Gift className="w-5 h-5 text-primary" />
             Redeemable Rewards & Streetwear Drops
           </h2>
           <span className="text-xs text-muted-foreground">Unlock rewards automatically</span>
@@ -228,14 +217,14 @@ export default function CustomerWalletPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Perk 1: Streetwear Hoodie */}
-          <Card className="p-5 space-y-4 border-white/10 relative overflow-hidden flex flex-col justify-between">
+          <Card className="neu-card kpi-tint-peach p-5 space-y-4 relative overflow-hidden flex flex-col justify-between">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Badge variant={balance >= HOODIE_THRESHOLD ? "default" : "outline"} className="text-[10px]">
                   {balance >= HOODIE_THRESHOLD ? "Unlocked!" : "400 Points"}
                 </Badge>
                 {balance >= HOODIE_THRESHOLD ? (
-                  <CheckCircle2 className="w-4 h-4 text-[#00FF66]" />
+                  <CheckCircle2 className="w-4 h-4 text-primary" />
                 ) : (
                   <Lock className="w-4 h-4 text-muted-foreground" />
                 )}
@@ -252,9 +241,9 @@ export default function CustomerWalletPage() {
                   <span className="text-muted-foreground">Progress</span>
                   <span className="font-mono text-foreground font-bold">{Math.round(hoodieProgress)}%</span>
                 </div>
-                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                <div className="h-1.5 rounded-full bg-surface-inset overflow-hidden">
                   <div
-                    className="h-full bg-[#00FF66] transition-all duration-500"
+                    className="h-full bg-primary transition-all duration-500"
                     style={{ width: `${hoodieProgress}%` }}
                   />
                 </div>
@@ -277,14 +266,14 @@ export default function CustomerWalletPage() {
           </Card>
 
           {/* Perk 2: Free Drink Voucher */}
-          <Card className="p-5 space-y-4 border-white/10 relative overflow-hidden flex flex-col justify-between">
+          <Card className="neu-card kpi-tint-sky p-5 space-y-4 relative overflow-hidden flex flex-col justify-between">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Badge variant={balance >= DRINK_THRESHOLD ? "default" : "outline"} className="text-[10px]">
                   {balance >= DRINK_THRESHOLD ? "Unlocked!" : "800 Points"}
                 </Badge>
                 {balance >= DRINK_THRESHOLD ? (
-                  <CheckCircle2 className="w-4 h-4 text-[#00FF66]" />
+                  <CheckCircle2 className="w-4 h-4 text-primary" />
                 ) : (
                   <Lock className="w-4 h-4 text-muted-foreground" />
                 )}
@@ -326,10 +315,10 @@ export default function CustomerWalletPage() {
           </Card>
 
           {/* Perk 3: Black Card Access */}
-          <Card className="p-5 space-y-4 border-white/10 relative overflow-hidden flex flex-col justify-between">
+          <Card className="neu-card kpi-tint-amber p-5 space-y-4 relative overflow-hidden flex flex-col justify-between">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-400">
+                <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-500 dark:text-amber-400">
                   1,200 Points
                 </Badge>
                 <Lock className="w-4 h-4 text-muted-foreground" />
@@ -371,17 +360,17 @@ export default function CustomerWalletPage() {
           Pulse Points Activity Ledger
         </h2>
 
-        <Card className="overflow-hidden border-border/40">
+        <Card className="neu-card overflow-hidden">
           <div className="divide-y divide-border/20">
             {transactions.map((tx) => (
-              <div key={tx.id} className="p-4 flex items-center justify-between gap-4 hover:bg-muted/20 transition-colors">
+              <div key={tx.id} className="p-4 flex items-center justify-between gap-4 hover:bg-surface-inset transition-colors">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-[#00FF66]/10 text-[#00FF66] flex items-center justify-center font-bold text-xs">
+                  <div className="w-9 h-9 rounded-full bg-primary/15 text-primary flex items-center justify-center font-bold text-xs">
                     <Zap className="w-4 h-4" />
                   </div>
                   <div>
                     <p className="text-xs font-semibold text-foreground">{tx.description}</p>
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-[10px] text-muted-foreground font-mono">
                       {new Date(tx.created_at).toLocaleDateString("en-IN", {
                         day: "numeric",
                         month: "short",
@@ -392,7 +381,7 @@ export default function CustomerWalletPage() {
                 </div>
 
                 <div className="text-right">
-                  <span className="text-sm font-mono font-bold text-[#00FF66]">
+                  <span className="text-sm font-mono font-bold text-primary">
                     +{tx.points} PTS
                   </span>
                 </div>

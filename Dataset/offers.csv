@@ -1,6 +1,9 @@
-﻿offer_id,coupon_code,offer_name,discount_percent,minimum_order_value_inr,valid_from,valid_until,is_active
+offer_id,coupon_code,offer_name,discount_percent,minimum_order_value_inr,valid_from,valid_until,is_active
 OFF-001,WELCOME10,First order discount,10.0,500.0,2026-10-01,2027-03-31,True
 OFF-002,PULSE15,Seasonal promotion,15.0,750.0,2026-10-01,2026-12-31,True
 OFF-003,FREESHIP,Free delivery on eligible orders,0.0,445.0,2026-10-01,2027-03-31,True
 OFF-004,MANGO5,Mango Fusion promotion,5.0,149.0,2026-10-01,2026-11-30,True
 OFF-005,BERRY10,Berry flavour promotion,10.0,298.0,2026-10-01,2026-12-15,True
+OFF-006,PULSE20,Pulse Power 20% Off,20.0,999.0,2026-10-19,2027-03-31,True
+OFF-007,WEEKEND5,Weekend Energy 5% Off,5.0,299.0,2026-10-19,2027-03-31,True
+OFF-008,OLDPULSE,Expired Demo Offer,8.0,399.0,2026-01-01,2026-06-30,False

@@ -52,10 +52,33 @@ export default function AdminInventoryPage() {
     try {
       const { data, error } = await supabase
         .from("inventory")
-        .select(`*, products (name, flavor, price)`)
-        .order("stock_quantity", { ascending: true });
+        .select(`
+          inventory_id,
+          product_id,
+          stock_on_hand,
+          reorder_level,
+          location_name,
+          last_updated_at,
+          products (product_name, flavor, price_inr)
+        `)
+        .order("stock_on_hand", { ascending: true });
       if (error) throw error;
-      setInventory((data as Inventory[]) ?? []);
+      const mapped: Inventory[] = (data || []).map((row: any) => ({
+        id: row.inventory_id,
+        product_id: row.product_id,
+        stock_quantity: Number(row.stock_on_hand),
+        reorder_level: Number(row.reorder_level),
+        location: row.location_name,
+        updated_at: row.last_updated_at,
+        products: row.products
+          ? {
+              name: row.products.product_name,
+              flavor: row.products.flavor,
+              price: Number(row.products.price_inr),
+            }
+          : undefined,
+      }));
+      setInventory(mapped);
       setIsDemo(false);
     } catch {
       setInventory(DEMO_INVENTORY);
@@ -149,20 +172,20 @@ export default function AdminInventoryPage() {
 
         {/* KPI Strip */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          <Card className="p-4 border-white/10 space-y-1">
+          <Card className="neu-card p-4 border-border/40 space-y-1">
             <p className="text-[11px] text-muted-foreground">Total Products</p>
             <p className="text-2xl font-extrabold text-foreground">{inventory.length}</p>
           </Card>
-          <Card className="p-4 border-white/10 border-amber-500/20 space-y-1">
+          <Card className="neu-card p-4 border-border/40 border-amber-500/20 space-y-1">
             <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
               Low Stock Alerts
             </p>
-            <p className="text-2xl font-extrabold text-amber-400">{lowStockCount}</p>
+            <p className="text-2xl font-extrabold text-amber-500 dark:text-amber-400">{lowStockCount}</p>
           </Card>
-          <Card className="p-4 border-white/10 space-y-1">
+          <Card className="neu-card p-4 border-border/40 space-y-1">
             <p className="text-[11px] text-muted-foreground">Total Units</p>
-            <p className="text-2xl font-extrabold text-[#00FF66]">
+            <p className="text-2xl font-extrabold text-primary">
               {inventory.reduce((s, i) => s + i.stock_quantity, 0).toLocaleString("en-IN")}
             </p>
           </Card>
@@ -175,22 +198,22 @@ export default function AdminInventoryPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by flavor or name..."
-            className="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-white/10 bg-surface text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#00FF66]/40 transition-all"
+            className="neu-inset w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-border/40 bg-surface text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all"
           />
         </div>
 
         {successMsg && (
-          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-400 flex items-center gap-2">
+          <div className="neu-card p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-500 dark:text-emerald-400 flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4" />
             {successMsg}
           </div>
         )}
 
         {/* Inventory Table */}
-        <Card className="border-white/10 overflow-hidden">
+        <Card className="neu-card border-border/40 overflow-hidden">
           {isLoading ? (
             <div className="p-12 flex items-center justify-center">
-              <Loader2 className="w-6 h-6 animate-spin text-[#00FF66]" />
+              <Loader2 className="w-6 h-6 animate-spin text-primary" />
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -271,7 +294,7 @@ export default function AdminInventoryPage() {
                                     [inv.id]: e.target.value,
                                   }))
                                 }
-                                className="w-16 px-2 py-1 text-xs rounded-lg border border-white/10 bg-surface text-foreground focus:outline-none focus:ring-1 focus:ring-[#00FF66]/40"
+                                className="neu-inset w-16 px-2 py-1 text-xs rounded-lg border border-border/40 bg-surface text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
                               />
                               <Button
                                 size="sm"
@@ -290,7 +313,7 @@ export default function AdminInventoryPage() {
                           ) : (
                             <button
                               onClick={() => setAdjusting(inv.id)}
-                              className="text-xs text-[#00FF66] hover:underline font-medium"
+                              className="text-xs text-primary hover:underline font-medium"
                             >
                               + Adjust
                             </button>

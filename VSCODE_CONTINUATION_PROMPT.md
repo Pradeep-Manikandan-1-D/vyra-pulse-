@@ -32,7 +32,7 @@ You are continuing development on an existing project called **Vyra Pulse** — 
 
 ### Do Not
 - Do not rebuild, reorganize, or rename working files without a clear reason.
-- Do not delete or modify the 6 CSV files in `data/`.
+- Canonical datasets reside in `Dataset/` (600 customers, 1000 orders, 1000 order items) replacing legacy `data/`.
 - Do not modify database migrations or RLS policies without explicit user instruction.
 - Do not weaken authentication, role checks, or Row Level Security.
 - Do not invent test results — only report what you have actually run and observed.

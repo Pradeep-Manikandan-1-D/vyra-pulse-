@@ -30,7 +30,7 @@ export default function CartPage() {
   // Get accent color for a product from local constants
   const getAccent = (productId: string) => {
     const flavor = VYRA_FLAVORS.find((f) => f.id === productId);
-    return flavor?.accentColor ?? "#00FF66";
+    return flavor?.accentColor ?? "var(--primary)";
   };
 
   const freeShippingRemaining = Math.max(0, STORE_POLICIES.freeShippingThreshold - subtotal);
@@ -39,9 +39,9 @@ export default function CartPage() {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center px-4 text-center space-y-6">
         {/* Background glow */}
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-96 h-96 bg-[#00FF66]/5 blur-[120px] rounded-full pointer-events-none" />
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-96 h-96 bg-primary/5 blur-[120px] rounded-full pointer-events-none" />
 
-        <div className="relative w-24 h-24 rounded-full bg-surface border border-white/10 flex items-center justify-center">
+        <div className="relative neu-raised-sm w-24 h-24 rounded-full border border-border/40 flex items-center justify-center">
           <ShoppingBag className="w-10 h-10 text-muted-foreground" />
         </div>
         <div className="space-y-2">
@@ -86,19 +86,19 @@ export default function CartPage() {
 
         {/* Free shipping progress */}
         {freeShippingRemaining > 0 && (
-          <div className="mb-6 p-4 rounded-2xl border border-[#00FF66]/20 bg-[#00FF66]/5 flex items-center gap-3">
-            <Truck className="w-4 h-4 text-[#00FF66] shrink-0" />
+          <div className="mb-6 p-4 rounded-2xl neu-inset flex items-center gap-3">
+            <Truck className="w-4 h-4 text-primary shrink-0" />
             <div className="flex-1 space-y-1.5">
               <p className="text-xs font-medium text-foreground">
                 Add{" "}
-                <span className="text-[#00FF66] font-bold">
+                <span className="text-primary font-bold">
                   ₹{freeShippingRemaining.toFixed(0)}
                 </span>{" "}
                 more for free delivery
               </p>
-              <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div className="w-full h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-[#00FF66] rounded-full transition-all duration-500"
+                  className="h-full bg-primary rounded-full transition-all duration-500"
                   style={{
                     width: `${Math.min(
                       100,
@@ -111,7 +111,7 @@ export default function CartPage() {
           </div>
         )}
         {deliveryFee === 0 && subtotal > 0 && (
-          <div className="mb-6 p-3 rounded-2xl border border-[#00FF66]/30 bg-[#00FF66]/10 flex items-center gap-2 text-xs text-[#00FF66] font-semibold">
+          <div className="mb-6 p-3.5 rounded-2xl neu-inset border border-primary/30 flex items-center gap-2 text-xs text-primary font-bold">
             <Truck className="w-4 h-4" />
             🎉 Free delivery unlocked on this order!
           </div>
@@ -125,15 +125,13 @@ export default function CartPage() {
               return (
                 <Card
                   key={item.product_id}
-                  className="p-4 border-white/10 hover:border-white/20 transition-colors"
+                  className="p-5 neu-card transition-all"
                 >
                   <div className="flex gap-4 items-start">
                     {/* Product visual */}
                     <div
-                      className="w-16 h-16 rounded-xl shrink-0 flex items-center justify-center text-2xl font-bold border"
+                      className="w-16 h-16 rounded-2xl neu-inset shrink-0 flex items-center justify-center text-2xl font-bold"
                       style={{
-                        background: `${accent}15`,
-                        borderColor: `${accent}30`,
                         color: accent,
                       }}
                     >
@@ -151,33 +149,33 @@ export default function CartPage() {
                         </div>
                         <button
                           onClick={() => removeItem(item.product_id)}
-                          className="text-muted-foreground hover:text-rose-400 transition-colors p-0.5 mt-0.5 shrink-0"
+                          className="text-muted-foreground hover:text-rose-500 transition-colors p-1 mt-0.5 shrink-0"
                           aria-label={`Remove ${item.name}`}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
 
-                      <div className="flex items-center justify-between pt-1">
+                      <div className="flex items-center justify-between pt-2">
                         {/* Qty controls */}
-                        <div className="flex items-center gap-1.5 border border-white/10 rounded-xl overflow-hidden">
+                        <div className="flex items-center gap-1 neu-inset rounded-xl p-1">
                           <button
                             onClick={() =>
                               updateQuantity(item.product_id, item.quantity - 1)
                             }
-                            className="p-2 hover:bg-white/5 transition-colors"
+                            className="p-1.5 hover:text-primary transition-colors rounded-lg"
                             aria-label="Decrease quantity"
                           >
                             <Minus className="w-3.5 h-3.5" />
                           </button>
-                          <span className="w-8 text-center text-sm font-bold text-foreground">
+                          <span className="w-8 text-center text-xs font-bold text-foreground">
                             {item.quantity}
                           </span>
                           <button
                             onClick={() =>
                               updateQuantity(item.product_id, item.quantity + 1)
                             }
-                            className="p-2 hover:bg-white/5 transition-colors"
+                            className="p-1.5 hover:text-primary transition-colors rounded-lg"
                             aria-label="Increase quantity"
                           >
                             <Plus className="w-3.5 h-3.5" />
@@ -185,7 +183,7 @@ export default function CartPage() {
                         </div>
 
                         {/* Line total */}
-                        <p className="font-extrabold text-foreground">
+                        <p className="font-extrabold text-foreground text-base">
                           ₹{(item.price * item.quantity).toFixed(2)}
                         </p>
                       </div>
@@ -198,7 +196,7 @@ export default function CartPage() {
 
           {/* Order Summary */}
           <div className="lg:col-span-1">
-            <Card className="p-6 border-white/10 sticky top-24 space-y-5">
+            <Card className="neu-card p-6 border-border/40 sticky top-24 space-y-5">
               <h2 className="text-base font-bold text-foreground">Order Summary</h2>
 
               <div className="space-y-3 text-sm">
@@ -212,7 +210,7 @@ export default function CartPage() {
                     Delivery Fee
                   </span>
                   {deliveryFee === 0 ? (
-                    <span className="text-[#00FF66] font-bold">FREE</span>
+                    <span className="text-primary font-bold">FREE</span>
                   ) : (
                     <span className="text-foreground font-medium">₹{deliveryFee.toFixed(2)}</span>
                   )}
@@ -224,11 +222,11 @@ export default function CartPage() {
               </div>
 
               {/* Loyalty note */}
-              <div className="p-3 rounded-xl bg-[#00FF66]/5 border border-[#00FF66]/20 text-[11px] text-muted-foreground flex items-start gap-1.5">
-                <Tag className="w-3.5 h-3.5 text-[#00FF66] shrink-0 mt-0.5" />
+              <div className="p-3 rounded-xl bg-primary/5 border border-primary/20 text-[11px] text-muted-foreground flex items-start gap-1.5">
+                <Tag className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
                 <span>
                   You&apos;ll earn{" "}
-                  <span className="text-[#00FF66] font-bold">
+                  <span className="text-primary font-bold">
                     {totalItems * 10} Pulse Points
                   </span>{" "}
                   on this order.
@@ -251,7 +249,7 @@ export default function CartPage() {
               </Button>
 
               <Link href="/shop" className="block">
-                <button className="w-full text-xs text-muted-foreground hover:text-[#00FF66] transition-colors text-center py-1">
+                <button className="w-full text-xs text-muted-foreground hover:text-primary transition-colors text-center py-1">
                   ← Continue Shopping
                 </button>
               </Link>

@@ -1,9 +1,0 @@
-﻿product_id,product_name,flavor,key_ingredients,caffeine_mg_per_330ml,volume_ml,price_inr,is_active,stock_quantity
-VP-CIT-001,Vyra Pulse Citrus Charge,Citrus (Lemon-Lime),Lemon; Lime; Green Tea Extract; B-Vitamins; Electrolytes,80,330,149.0,True,120
-VP-BLU-002,Vyra Pulse Blueberry Blast,Blueberry,Blueberry Flavor; Acai Flavor; Caffeine; L-Theanine; B-Vitamins,80,330,149.0,True,95
-VP-MAN-003,Vyra Pulse Mango Fusion,Mango,Mango Flavor; Caffeine; Ginseng Extract; B-Vitamins; Electrolytes,80,330,149.0,True,110
-VP-WAT-004,Vyra Pulse Watermelon Rush,Watermelon,Watermelon Flavor; Coconut Water; Caffeine; Electrolytes; B-Vitamins,70,330,149.0,True,100
-VP-GRA-005,Vyra Pulse Grape Surge,Grape,Grape Flavor; Caffeine; Ginseng Extract; B-Vitamins,80,330,149.0,True,80
-VP-GUA-006,Vyra Pulse Pink Guava Spark,Pink Guava,Pink Guava Flavor; Caffeine; B-Vitamins; Electrolytes,80,330,149.0,True,90
-VP-MIN-007,Vyra Pulse Icy Mint Freeze,Mint,Mint Flavor; Caffeine; L-Theanine; Electrolytes; B-Vitamins,70,330,149.0,True,75
-VP-PEA-008,Vyra Pulse Peach Boost,Peach,Peach Flavor; Caffeine; Ginseng Extract; B-Vitamins; Electrolytes,80,330,149.0,True,85

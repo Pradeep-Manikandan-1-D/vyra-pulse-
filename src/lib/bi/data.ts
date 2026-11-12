@@ -99,24 +99,54 @@ const SEED_PRODUCTS = VYRA_FLAVORS.map((f) => ({
   price: f.priceInr,
 }));
 
+// Helper to determine the reference date for date filtering.
+// If the dataset contains historical records older than 30 days, we anchor the relative
+// 7d/30d/90d filter to the latest available order date in the dataset so filters work logically.
+// For live operations with recent orders, the current real time (Date.now()) is used.
+function getEffectiveReferenceDate(orders: RawOrder[]): { referenceDate: Date; isHistoricalSeed: boolean } {
+  if (orders.length === 0) {
+    return { referenceDate: new Date(), isHistoricalSeed: false };
+  }
+
+  let maxOrderTime = 0;
+  for (const o of orders) {
+    const t = new Date(o.ordered_at).getTime();
+    if (!isNaN(t) && t > maxOrderTime) {
+      maxOrderTime = t;
+    }
+  }
+
+  const nowTime = Date.now();
+  // If the newest order is older than 30 days from now, treat as historical dataset
+  const isHistorical = maxOrderTime > 0 && (nowTime - maxOrderTime > 30 * 86400 * 1000);
+  const referenceDate = isHistorical && maxOrderTime > 0 ? new Date(maxOrderTime) : new Date(nowTime);
+
+  return { referenceDate, isHistoricalSeed: isHistorical };
+}
+
 // Helper to filter orders by selected criteria
 function applyFilters(
   orders: RawOrder[],
   orderItems: RawOrderItem[],
   filters: BIFilterState
-): { filteredOrders: RawOrder[]; filteredItems: RawOrderItem[] } {
-  const now = new Date("2026-10-18T00:00:00Z"); // benchmark date
+): {
+  filteredOrders: RawOrder[];
+  filteredItems: RawOrderItem[];
+  dateContext: { referenceDate: Date; isHistoricalSeed: boolean };
+} {
+  const dateContext = getEffectiveReferenceDate(orders);
+  const anchor = dateContext.referenceDate;
 
   // 1. Date Range
   let dateCutoff: Date | null = null;
   if (filters.dateRange === "7d") {
-    dateCutoff = new Date(now);
+    dateCutoff = new Date(anchor);
     dateCutoff.setDate(dateCutoff.getDate() - 7);
   } else if (filters.dateRange === "30d") {
-    dateCutoff = new Date(now);
+    dateCutoff = new Date(anchor);
     dateCutoff.setDate(dateCutoff.getDate() - 30);
   } else if (filters.dateRange === "90d") {
-    dateCutoff = new Date(now);
+    dateCutoff = new Date(anchor);
     dateCutoff.setDate(dateCutoff.getDate() - 90);
   }
 
@@ -145,7 +175,57 @@ function applyFilters(
   const matchingOrderIds = new Set(filteredOrders.map((o) => o.order_id));
   const filteredItems = orderItems.filter((i) => matchingOrderIds.has(i.order_id));
 
-  return { filteredOrders, filteredItems };
+  return { filteredOrders, filteredItems, dateContext };
+}
+
+// ─── REUSABLE PAGINATION HELPER ───────────────────────────────────────────────
+/**
+ * Generic pagination helper for Supabase PostgREST tables exceeding the 1,000-row page limit.
+ * Recreates the query builder for each offset window and orders deterministically by unique primary key.
+ * Aborts and propagates error if any page request fails to avoid partial/inconsistent datasets.
+ */
+export async function fetchAllRows<T extends Record<string, any>>(
+  queryFactory: () => any,
+  pkField: string,
+  pageSize = 1000
+): Promise<T[]> {
+  const records: T[] = [];
+  const seenIds = new Set<string>();
+  let from = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const to = from + pageSize - 1;
+    const { data, error } = await queryFactory()
+      .order(pkField, { ascending: true })
+      .range(from, to);
+
+    if (error) {
+      console.error(`[BI Pagination Error] Failed to fetch page ${from}-${to} ordered by ${pkField}:`, error);
+      throw error;
+    }
+
+    if (!data || data.length === 0) {
+      hasMore = false;
+      break;
+    }
+
+    for (const row of data) {
+      const id = String(row[pkField]);
+      if (!seenIds.has(id)) {
+        seenIds.add(id);
+        records.push(row as T);
+      }
+    }
+
+    if (data.length < pageSize) {
+      hasMore = false;
+    } else {
+      from += pageSize;
+    }
+  }
+
+  return records;
 }
 
 // ─── MAIN FETCH & AGGREGATE FUNCTION ───────────────────────────────────────────
@@ -161,16 +241,16 @@ export async function getFullBIDataset(filters: BIFilterState): Promise<FullBIDa
 
   if (supabase && isSupabaseConfigured()) {
     try {
-      const [oRes, iRes, cRes, invRes, offRes] = await Promise.all([
-        supabase.from("orders").select("*"),
-        supabase.from("order_items").select("*"),
+      const [rawOrders, rawOrderItems, cRes, invRes, offRes] = await Promise.all([
+        fetchAllRows<any>(() => supabase.from("orders").select("*"), "order_id"),
+        fetchAllRows<any>(() => supabase.from("order_items").select("*"), "order_item_id"),
         supabase.from("customers").select("*"),
         supabase.from("inventory").select("product_id, stock_on_hand, reorder_level"),
         supabase.from("offers").select("*"),
       ]);
 
-      if (oRes.data && oRes.data.length > 0) {
-        orders = oRes.data.map((o: any) => ({
+      if (rawOrders && rawOrders.length > 0) {
+        orders = rawOrders.map((o: any) => ({
           order_id: o.order_id,
           customer_id: o.customer_id,
           ordered_at: o.ordered_at || o.created_at,
@@ -186,7 +266,7 @@ export async function getFullBIDataset(filters: BIFilterState): Promise<FullBIDa
           order_status: o.order_status,
           payment_status: o.payment_status,
         }));
-        orderItems = (iRes.data || []).map((i: any) => ({
+        orderItems = (rawOrderItems || []).map((i: any) => ({
           order_item_id: i.order_item_id,
           order_id: i.order_id,
           product_id: i.product_id,
@@ -222,8 +302,9 @@ export async function getFullBIDataset(filters: BIFilterState): Promise<FullBIDa
         }
         isLive = true;
       }
-    } catch {
-      // Fallback
+    } catch (err) {
+      console.error("[Vyra Pulse BI] Failed to fetch live Supabase BI telemetry:", err);
+      // Fallback to verified seed replica if live database is unreachable or query errors out
     }
   }
 
@@ -237,13 +318,13 @@ export async function getFullBIDataset(filters: BIFilterState): Promise<FullBIDa
   }
 
   // Apply User Filters
-  const { filteredOrders, filteredItems } = applyFilters(orders, orderItems, filters);
+  const { filteredOrders, filteredItems, dateContext } = applyFilters(orders, orderItems, filters);
 
   // ─── COMPUTE CORE KPIS ───────────────────────────────────────────────────────
   const grossSales = filteredOrders.reduce((sum, o) => sum + (o.subtotal_inr || o.order_total_inr), 0);
   const discountsGiven = filteredOrders.reduce((sum, o) => sum + (o.discount_amount_inr || 0), 0);
   
-  // Non-cancelled orders for net revenue
+  // Non-cancelled orders for net recognized revenue & recognized units
   const validOrders = filteredOrders.filter((o) => o.order_status !== "cancelled");
   const netRevenue = validOrders.reduce((sum, o) => sum + o.order_total_inr, 0);
 
@@ -252,7 +333,14 @@ export async function getFullBIDataset(filters: BIFilterState): Promise<FullBIDa
   ).length;
   const cancelledOrders = filteredOrders.filter((o) => o.order_status === "cancelled").length;
   const avgOrderValue = validOrders.length ? netRevenue / validOrders.length : 0;
-  const totalUnitsSold = filteredItems.reduce((sum, i) => sum + i.quantity, 0);
+  
+  // Non-cancelled order IDs set for recognizing valid product sales
+  const nonCancelledOrderIds = new Set(validOrders.map((o) => o.order_id));
+  
+  // Recognized units sold excludes items in cancelled orders
+  const totalUnitsSold = filteredItems
+    .filter((i) => nonCancelledOrderIds.has(i.order_id))
+    .reduce((sum, i) => sum + i.quantity, 0);
 
   // Repeat customer analysis
   const customerOrderCounts: Record<string, number> = {};
@@ -324,9 +412,11 @@ export async function getFullBIDataset(filters: BIFilterState): Promise<FullBIDa
     };
   });
 
-  // Product & Flavor Contribution (Calculated strictly from order items)
+  // Product & Flavor Contribution (Calculated strictly from eligible non-cancelled order items)
   const productRevMap: Record<string, { units: number; revenue: number }> = {};
   filteredItems.forEach((i) => {
+    // Exclude items from cancelled orders to recognize real product revenue & units
+    if (!nonCancelledOrderIds.has(i.order_id)) return;
     if (!productRevMap[i.product_id]) productRevMap[i.product_id] = { units: 0, revenue: 0 };
     productRevMap[i.product_id].units += i.quantity;
     productRevMap[i.product_id].revenue += i.line_total_inr;
@@ -341,7 +431,7 @@ export async function getFullBIDataset(filters: BIFilterState): Promise<FullBIDa
       color: p.color,
       revenue: rev,
       units,
-      sharePct: grossSales > 0 ? parseFloat(((rev / grossSales) * 100).toFixed(1)) : 0,
+      sharePct: netRevenue > 0 ? parseFloat(((rev / netRevenue) * 100).toFixed(1)) : 0,
     };
   }).sort((a, b) => b.revenue - a.revenue);
 
@@ -407,10 +497,11 @@ export async function getFullBIDataset(filters: BIFilterState): Promise<FullBIDa
         email: c ? c.email : `customer_${o.customer_id}@example.com`,
       };
     }
+    // Only recognize eligible (non-cancelled) orders for customer spend and purchase count
     if (o.order_status !== "cancelled") {
       customerMap[o.customer_id].spend += o.order_total_inr;
+      customerMap[o.customer_id].orders += 1;
     }
-    customerMap[o.customer_id].orders += 1;
     if (new Date(o.ordered_at) > new Date(customerMap[o.customer_id].lastDate)) {
       customerMap[o.customer_id].lastDate = o.ordered_at;
     }
@@ -422,6 +513,7 @@ export async function getFullBIDataset(filters: BIFilterState): Promise<FullBIDa
       if (info.spend >= 1000) segment = "VIP";
       else if (info.orders >= 3) segment = "Frequent";
       else if (info.orders === 1) segment = "First-Time";
+      else if (info.orders === 0) segment = "Inactive";
 
       return {
         customerId: cid,
@@ -449,7 +541,7 @@ export async function getFullBIDataset(filters: BIFilterState): Promise<FullBIDa
     } else if (c.customerSegment === "Frequent") {
       segmentCounts.Frequent += 1;
       segmentRev.Frequent += c.netSpend;
-    } else {
+    } else if (c.customerSegment === "First-Time") {
       segmentCounts["First-Time"] += 1;
       segmentRev["First-Time"] += c.netSpend;
     }
@@ -461,19 +553,22 @@ export async function getFullBIDataset(filters: BIFilterState): Promise<FullBIDa
     { segment: "First-Time Buyers", count: segmentCounts["First-Time"], revenueContribution: segmentRev["First-Time"], color: "#A855F7" },
   ];
 
-  // Frequency Buckets
+  // Frequency Buckets (Strictly based on eligible non-cancelled purchases)
   const freqMap: Record<string, number> = { "1 Order": 0, "2 Orders": 0, "3 Orders": 0, "4+ Orders": 0 };
+  let activePurchasersCount = 0;
   Object.values(customerMap).forEach((c) => {
+    if (c.orders === 0) return; // Placed only cancelled orders in this window
+    activePurchasersCount += 1;
     if (c.orders === 1) freqMap["1 Order"] += 1;
     else if (c.orders === 2) freqMap["2 Orders"] += 1;
     else if (c.orders === 3) freqMap["3 Orders"] += 1;
     else freqMap["4+ Orders"] += 1;
   });
-  const totalCustInSample = Object.keys(customerMap).length || 1;
+  const totalCustInSample = activePurchasersCount || 1;
   const frequencyBuckets: PurchaseFrequencyBucket[] = Object.entries(freqMap).map(([bucket, count]) => ({
     orderBucket: bucket,
     customerCount: count,
-    percentage: parseFloat(((count / totalCustInSample) * 100).toFixed(1)),
+    percentage: activePurchasersCount > 0 ? parseFloat(((count / totalCustInSample) * 100).toFixed(1)) : 0,
   }));
 
   // Customer Acquisition Trend
@@ -502,17 +597,29 @@ export async function getFullBIDataset(filters: BIFilterState): Promise<FullBIDa
   ).map(([region, count]) => ({ region, count }));
 
   // ─── CATEGORY D: PRODUCT & FLAVOR PERFORMANCE ──────────────────────────────
+  const cancelledOrdersSet = new Set(
+    filteredOrders.filter((o) => o.order_status === "cancelled").map((o) => o.order_id)
+  );
+
   const productPerformance: ProductPerformancePoint[] = SEED_PRODUCTS.map((p) => {
     const rev = productRevMap[p.product_id]?.revenue || 0;
     const units = productRevMap[p.product_id]?.units || 0;
-    const cancelledOrdersSet = new Set(
-      filteredOrders.filter((o) => o.order_status === "cancelled").map((o) => o.order_id)
-    );
-    const cancelledCount = filteredItems.filter(
-      (i) => i.product_id === p.product_id && cancelledOrdersSet.has(i.order_id)
-    ).length;
-    const totalOrdered = filteredItems.filter((i) => i.product_id === p.product_id).length || 1;
-    const cancelRate = parseFloat(((cancelledCount / totalOrdered) * 100).toFixed(1));
+
+    // Formula: Cancellation Rate = Cancelled Quantity / Total Ordered Quantity * 100
+    // Cancelled quantities in numerator:
+    const cancelledQty = filteredItems
+      .filter((i) => i.product_id === p.product_id && cancelledOrdersSet.has(i.order_id))
+      .reduce((sum, i) => sum + i.quantity, 0);
+
+    // Cancelled and non-cancelled quantities in denominator:
+    const totalOrderedQty = filteredItems
+      .filter((i) => i.product_id === p.product_id)
+      .reduce((sum, i) => sum + i.quantity, 0);
+
+    // If no units were ordered for an SKU, mark as -1 so UI renders "N/A — No Orders"
+    const cancelRate = totalOrderedQty > 0
+      ? parseFloat(((cancelledQty / totalOrderedQty) * 100).toFixed(1))
+      : -1;
 
     return {
       productId: p.product_id,
@@ -523,7 +630,7 @@ export async function getFullBIDataset(filters: BIFilterState): Promise<FullBIDa
       revenue: rev,
       avgUnitPrice: units ? Math.round(rev / units) : 149,
       cancellationRatePct: cancelRate,
-      salesSharePct: grossSales ? parseFloat(((rev / grossSales) * 100).toFixed(1)) : 0,
+      salesSharePct: netRevenue ? parseFloat(((rev / netRevenue) * 100).toFixed(1)) : 0,
     };
   }).sort((a, b) => b.unitsSold - a.unitsSold);
 
@@ -892,7 +999,11 @@ export async function getFullBIDataset(filters: BIFilterState): Promise<FullBIDa
       generatedAt: new Date().toISOString(),
       totalOrdersCount: filteredOrders.length,
       dataSource: isLive ? "postgresql_live" : "postgresql_seed_replica",
-      appliedFilterSummary: `Range: ${filters.dateRange.toUpperCase()} | Status: ${filters.orderStatus.toUpperCase()} | State: ${filters.stateRegion.toUpperCase()} | Flavor: ${filters.flavorId.toUpperCase()}`,
+      appliedFilterSummary: `Range: ${filters.dateRange.toUpperCase()}${
+        dateContext.isHistoricalSeed && filters.dateRange !== "all"
+          ? ` (Sample Anchor: ${dateContext.referenceDate.toISOString().split("T")[0]})`
+          : ""
+      } | Status: ${filters.orderStatus.toUpperCase()} | State: ${filters.stateRegion.toUpperCase()} | Flavor: ${filters.flavorId.toUpperCase()}`,
     },
     summaryKpis: {
       grossSales,

@@ -2,11 +2,12 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 
-type Theme = "dark" | "light" | "system";
+export type Theme = "dark" | "light" | "system";
 
-interface ThemeContextType {
+export interface ThemeContextType {
   theme: Theme;
   resolvedTheme: "dark" | "light";
+  themeName: "Dark Elegant" | "Mint Fresh";
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
 }
@@ -21,10 +22,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     try {
       const savedTheme = localStorage.getItem("vyra-theme") as Theme | null;
-      if (savedTheme) {
+      if (savedTheme === "light" || savedTheme === "dark") {
         setThemeState(savedTheme);
       } else {
-        setThemeState("dark"); // Default Vyra Pulse dark aesthetic
+        setThemeState("dark"); // Default: Dark Elegant
       }
     } catch {
       // Ignore localStorage read failures
@@ -69,8 +70,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setThemeState((prev) => (prev === "dark" ? "light" : "dark"));
   };
 
+  const themeName = resolvedTheme === "dark" ? "Dark Elegant" : "Mint Fresh";
+
   return (
-    <ThemeContext.Provider value={{ theme, resolvedTheme, setTheme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, resolvedTheme, themeName, setTheme, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
   );

@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { VYRA_FLAVORS, STORE_POLICIES } from "@/lib/constants";
 import { CheckoutResult } from "@/lib/types";
+import { recordCustomerOrder, getCustomerByEmail } from "@/lib/customer/data";
 
 interface DeliveryForm {
   full_name: string;
@@ -90,16 +91,53 @@ export default function CheckoutPage() {
 
     const supabase = createClient();
     if (!supabase || !isSupabaseConfigured()) {
-      // Demo mode: recognise the seeded codes
-      const demoCodes: Record<string, { type: string; value: number; name: string }> = {
-        "VPULSE10": { type: "percentage", value: 10, name: "10% Welcome Offer" },
-        "VPULSE20": { type: "percentage", value: 20, name: "Flash Sale 20% OFF" },
-        "FLAT50":   { type: "fixed", value: 50, name: "₹50 Flat Discount" },
-        "FLAT100":  { type: "fixed", value: 100, name: "₹100 Big Discount" },
-        "FREESHIP": { type: "free_shipping", value: 0, name: "Free Shipping" },
+      // Check both seeded demo codes and any admin-created/edited offers
+      let activeOffers: Record<string, { type: string; value: number; name: string; min: number; active: boolean; expiry?: string | null }> = {
+        "WELCOME10": { type: "percentage", value: 10, name: "10% Welcome Offer", min: 500, active: true },
+        "VPULSE10":  { type: "percentage", value: 10, name: "10% Welcome Offer", min: 0, active: true },
+        "VPULSE20":  { type: "percentage", value: 20, name: "Flash Sale 20% OFF", min: 300, active: true },
+        "FLAT50":    { type: "fixed", value: 50, name: "₹50 Flat Discount", min: 250, active: true },
+        "FLAT100":   { type: "fixed", value: 100, name: "₹100 Big Discount", min: 500, active: true },
+        "FREESHIP":  { type: "free_shipping", value: 0, name: "Free Shipping", min: 200, active: true },
       };
-      const demo = demoCodes[offerCode.toUpperCase()];
-      if (demo) {
+
+      try {
+        const storedOffers = localStorage.getItem("vyra_admin_offers");
+        if (storedOffers) {
+          const parsed = JSON.parse(storedOffers);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((po: any) => {
+              activeOffers[po.offer_code.toUpperCase()] = {
+                type: po.offer_type,
+                value: Number(po.discount_value),
+                name: po.offer_name,
+                min: Number(po.minimum_order_value) || 0,
+                active: po.is_active,
+                expiry: po.valid_until,
+              };
+            });
+          }
+        }
+      } catch {
+        // Ignore
+      }
+
+      const demo = activeOffers[offerCode.toUpperCase()];
+      if (demo && demo.active) {
+        if (demo.expiry && new Date(demo.expiry) < new Date()) {
+          setOfferError("This offer code has expired.");
+          setOfferDiscount(0);
+          setOfferApplied(null);
+          return;
+        }
+
+        if (subtotal < demo.min) {
+          setOfferError(`Minimum order value of ₹${demo.min} required for this offer.`);
+          setOfferDiscount(0);
+          setOfferApplied(null);
+          return;
+        }
+
         const disc = demo.type === "percentage"
           ? (subtotal * demo.value) / 100
           : demo.type === "fixed"
@@ -183,14 +221,18 @@ export default function CheckoutPage() {
       };
 
       try {
-        const existing = JSON.parse(localStorage.getItem("vyra_demo_orders") || "[]");
-        const fullDemoOrder = {
+        const customerCode =
+          profile?.customer_id ||
+          (user?.email ? getCustomerByEmail(user.email)?.customer_id : null) ||
+          user?.id ||
+          "GUEST-CUST";
+
+        const fullOrder = {
           id: mockOrder.order_id,
           order_code: mockOrder.order_code,
-          customer_id: user?.id || "demo-cust",
-          customer_email: user?.email || "customer@vyrapulse.com",
-          order_status: "processing",
-          payment_status: "paid",
+          customer_id: customerCode,
+          order_status: "processing" as const,
+          payment_status: "paid" as const,
           subtotal: subtotal,
           discount_amount: offerDiscount,
           delivery_fee: deliveryFee,
@@ -212,23 +254,11 @@ export default function CheckoutPage() {
             line_total: i.price * i.quantity,
           })),
         };
-        localStorage.setItem("vyra_demo_orders", JSON.stringify([fullDemoOrder, ...existing]));
 
-        // Also credit wallet points in demo mode
-        const currentWallet = JSON.parse(localStorage.getItem("vyra_demo_wallet") || '{"balance": 120, "lifetime": 120, "history": []}');
-        currentWallet.balance += pointsEarned;
-        currentWallet.lifetime += pointsEarned;
-        currentWallet.history.unshift({
-          id: `tx-${Date.now()}`,
-          order_id: mockOrder.order_id,
-          transaction_type: "earned",
-          points: pointsEarned,
-          description: `Order ${mockOrder.order_code} points reward`,
-          created_at: new Date().toISOString(),
-        });
-        localStorage.setItem("vyra_demo_wallet", JSON.stringify(currentWallet));
+        // Record strictly into this customer's isolated account ledger
+        recordCustomerOrder(customerCode, fullOrder as any);
       } catch (e) {
-        console.warn("Could not save demo order to localStorage", e);
+        console.warn("Could not save isolated order", e);
       }
 
       setOrderResult(mockOrder);
@@ -238,24 +268,35 @@ export default function CheckoutPage() {
     }
 
     try {
-      // ─── Live Supabase secure checkout via PostgreSQL RPC ──────
+      // ─── Live Supabase secure checkout via canonical PostgreSQL RPC ──────
+      const customerId =
+        profile?.customer_id ||
+        (user?.email ? getCustomerByEmail(user.email)?.customer_id : null) ||
+        user?.id ||
+        "CUST-0001";
+
+      const deliveryLocation = [
+        form.full_name,
+        form.phone,
+        form.address_line1,
+        form.address_line2,
+      ].filter(Boolean).join(", ");
+
       const payload = {
+        p_customer_id: customerId,
         p_items: items.map((i) => ({
           product_id: i.product_id,
           quantity: i.quantity,
         })),
-        p_delivery_full_name: form.full_name,
-        p_delivery_phone: form.phone,
-        p_delivery_address_line1: form.address_line1,
-        p_delivery_address_line2: form.address_line2 || null,
         p_delivery_city: form.city,
         p_delivery_state: form.state,
-        p_delivery_pincode: form.pincode,
-        p_offer_code: offerApplied || null,
+        p_delivery_postal_code: form.pincode,
+        p_delivery_location: deliveryLocation,
+        p_coupon_code: offerApplied || null,
       };
 
       const { data, error: rpcError } = await supabase.rpc(
-        "process_checkout",
+        "process_customer_checkout",
         payload
       );
 
@@ -265,7 +306,13 @@ export default function CheckoutPage() {
         return;
       }
 
-      setOrderResult(data as CheckoutResult);
+      const res = data as any;
+      setOrderResult({
+        order_id: res?.order_id || `ORD-${Date.now()}`,
+        order_code: res?.order_id || `ORD-${Date.now()}`,
+        total_amount: Number(res?.order_total_inr ?? res?.total_amount ?? finalTotal),
+        points_earned: Number(res?.points_earned ?? 0),
+      });
       clearCart();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Checkout failed.");
@@ -279,11 +326,11 @@ export default function CheckoutPage() {
     return (
       <div className="min-h-[80vh] flex items-center justify-center px-4">
         <div className="max-w-md w-full text-center space-y-6">
-          <div className="w-20 h-20 rounded-full bg-[#00FF66]/10 border border-[#00FF66]/30 flex items-center justify-center mx-auto">
-            <CheckCircle2 className="w-10 h-10 text-[#00FF66]" />
+          <div className="w-20 h-20 rounded-full bg-primary/10 border border-primary/30 flex items-center justify-center mx-auto">
+            <CheckCircle2 className="w-10 h-10 text-primary" />
           </div>
           <div className="space-y-2">
-            <div className="inline-block px-3 py-1 rounded-full bg-[#00FF66]/10 border border-[#00FF66]/20 text-[#00FF66] text-xs font-bold font-mono">
+            <div className="inline-block px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-bold font-mono">
               {orderResult.order_code}
             </div>
             <h1 className="text-2xl font-extrabold text-foreground tracking-tight">
@@ -295,14 +342,14 @@ export default function CheckoutPage() {
             </p>
           </div>
 
-          <Card className="p-4 text-sm space-y-2 border-white/10 text-left">
+          <Card className="neu-card p-4 text-sm space-y-2 border-border/40 text-left">
             <div className="flex justify-between text-muted-foreground">
               <span>Total Paid</span>
               <span className="text-foreground font-bold">₹{orderResult.total_amount.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-muted-foreground">
               <span>Pulse Points Earned</span>
-              <span className="text-[#00FF66] font-bold">+{orderResult.points_earned} pts</span>
+              <span className="text-primary font-bold">+{orderResult.points_earned} pts</span>
             </div>
           </Card>
 
@@ -327,7 +374,7 @@ export default function CheckoutPage() {
   if (authLoading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin text-[#00FF66]" />
+        <Loader2 className="w-6 h-6 animate-spin text-primary" />
       </div>
     );
   }
@@ -338,8 +385,8 @@ export default function CheckoutPage() {
         {/* Header */}
         <div className="mb-8 border-b border-border/40 pb-6">
           <div className="flex items-center gap-2 mb-1">
-            <Lock className="w-4 h-4 text-[#00FF66]" />
-            <span className="text-[10px] font-mono uppercase tracking-wider text-[#00FF66]">
+            <Lock className="w-4 h-4 text-primary" />
+            <span className="text-[10px] font-mono uppercase tracking-wider text-primary">
               Secure Checkout
             </span>
           </div>
@@ -352,9 +399,9 @@ export default function CheckoutPage() {
           {/* Delivery Details — left */}
           <div className="lg:col-span-3 space-y-6">
             {/* Delivery Address */}
-            <Card className="p-6 border-white/10 space-y-4">
+            <Card className="neu-card p-6 space-y-4">
               <div className="flex items-center gap-2">
-                <Truck className="w-4 h-4 text-muted-foreground" />
+                <Truck className="w-4 h-4 text-primary" />
                 <h2 className="font-bold text-foreground">Delivery Address</h2>
               </div>
 
@@ -380,7 +427,7 @@ export default function CheckoutPage() {
                       value={form[f.name as keyof DeliveryForm]}
                       onChange={handleFieldChange}
                       placeholder={f.placeholder}
-                      className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-white/10 bg-surface text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#00FF66]/40 focus:border-[#00FF66]/60 transition-all"
+                      className="neu-inset w-full px-3.5 py-2.5 text-sm rounded-xl border border-border/40 bg-surface text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all"
                     />
                   </div>
                 ))}
@@ -388,13 +435,13 @@ export default function CheckoutPage() {
             </Card>
 
             {/* Offer Code */}
-            <Card className="p-5 border-white/10">
+            <Card className="neu-card p-5">
               <button
                 onClick={() => setShowOfferInput((v) => !v)}
                 className="w-full flex items-center justify-between text-sm font-semibold text-foreground"
               >
                 <span className="flex items-center gap-2">
-                  <Tag className="w-4 h-4 text-muted-foreground" />
+                  <Tag className="w-4 h-4 text-primary" />
                   Have an offer code?
                 </span>
                 {showOfferInput ? (
@@ -410,7 +457,7 @@ export default function CheckoutPage() {
                     value={offerCode}
                     onChange={(e) => setOfferCode(e.target.value.toUpperCase())}
                     placeholder="ENTER CODE"
-                    className="flex-1 px-3.5 py-2.5 text-sm rounded-xl border border-white/10 bg-surface text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#00FF66]/40 transition-all font-mono tracking-wider"
+                    className="neu-inset flex-1 px-3.5 py-2.5 text-sm rounded-xl border border-border/40 bg-surface text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all font-mono tracking-wider"
                   />
                   <Button
                     variant="secondary"
@@ -424,13 +471,13 @@ export default function CheckoutPage() {
               )}
 
               {offerApplied && (
-                <p className="mt-2 text-xs text-[#00FF66] flex items-center gap-1">
+                <p className="mt-2 text-xs text-primary flex items-center gap-1 font-medium">
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   Code <strong>{offerApplied}</strong> applied — saving ₹{offerDiscount.toFixed(2)}
                 </p>
               )}
               {offerError && (
-                <p className="mt-2 text-xs text-rose-400 flex items-center gap-1">
+                <p className="mt-2 text-xs text-rose-500 flex items-center gap-1 font-medium">
                   <AlertCircle className="w-3.5 h-3.5" />
                   {offerError}
                 </p>
@@ -439,8 +486,8 @@ export default function CheckoutPage() {
 
             {/* Error */}
             {error && (
-              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+              <div className="neu-card p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-500 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
                 {error}
               </div>
             )}
@@ -448,13 +495,12 @@ export default function CheckoutPage() {
 
           {/* Order Summary — right */}
           <div className="lg:col-span-2">
-            <Card className="p-6 border-white/10 sticky top-24 space-y-5">
+            <Card className="neu-card p-6 sticky top-24 space-y-5">
               <h2 className="font-bold text-foreground">Order Summary</h2>
 
               {/* Items list */}
               <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1">
                 {items.map((item) => {
-                  const flavor = VYRA_FLAVORS.find((f) => f.id === item.product_id);
                   return (
                     <div key={item.product_id} className="flex justify-between text-xs gap-2">
                       <span className="text-muted-foreground truncate">
@@ -479,13 +525,13 @@ export default function CheckoutPage() {
                     Delivery
                   </span>
                   {deliveryFee === 0 ? (
-                    <span className="text-[#00FF66] font-bold">FREE</span>
+                    <span className="text-primary font-bold">FREE</span>
                   ) : (
                     <span>₹{deliveryFee.toFixed(2)}</span>
                   )}
                 </div>
                 {offerDiscount > 0 && (
-                  <div className="flex justify-between text-[#00FF66]">
+                  <div className="flex justify-between text-primary font-medium">
                     <span className="flex items-center gap-1">
                       <Tag className="w-3.5 h-3.5" />
                       Offer ({offerApplied})
@@ -499,13 +545,14 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
-              <div className="p-3 rounded-xl border border-amber-500/20 bg-amber-500/5 text-[11px] text-amber-300">
+              <div className="p-3 rounded-xl border border-amber-500/20 bg-amber-500/10 text-[11px] text-amber-600 dark:text-amber-300">
                 <strong>Demo Checkout:</strong> No real payment is processed. Orders are
-                stored in PostgreSQL for BI and fulfilment tracking.
+                stored for BI and fulfilment tracking.
               </div>
 
               <Button
-                className="w-full justify-center gap-2 py-3"
+                variant="primary"
+                className="w-full justify-center gap-2 py-3 shadow-lg"
                 onClick={handlePlaceOrder}
                 disabled={isSubmitting}
               >
@@ -523,7 +570,7 @@ export default function CheckoutPage() {
               </Button>
 
               <Link href="/cart" className="block text-center">
-                <span className="text-xs text-muted-foreground hover:text-[#00FF66] transition-colors">
+                <span className="text-xs text-muted-foreground hover:text-primary transition-colors">
                   ← Return to Cart
                 </span>
               </Link>

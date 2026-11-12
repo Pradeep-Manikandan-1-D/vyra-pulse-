@@ -4,57 +4,233 @@
 
 @layer base {
   :root {
-    --background: #F8FAFC;
-    --foreground: #0F172A;
+    /* ─── THEME B: MINT FRESH (Vibrant & Refreshing Light Theme) ───── */
+    --background: #F2F8F4;
+    --background-secondary: #E8F3EC;
     --surface: #FFFFFF;
-    --surface-elevated: #F1F5F9;
-    --border: #E2E8F0;
-    --muted: #64748B;
-    --muted-foreground: #94A3B8;
+    --surface-secondary: #F6FAF7;
+    --surface-elevated: #FFFFFF;
+    --surface-inset: #EDF6F1;
+    --foreground: #123321;
+    --muted: #537361;
+    --muted-foreground: #537361;
+    --primary: #23804D;
+    --primary-hover: #1A643B;
+    --accent: #23804D;
+    --accent-hover: #1A643B;
+    --accent-soft: #D5EFE0;
+    --border: #D1E5D8;
+    --border-subtle: #E2EFE7;
+    --success: #23804D;
+    --error: #BE123C;
+
+    /* Rich Pastel Accent Suite for Mint Fresh */
+    --pastel-mint: #D6F4E4;
+    --pastel-mint-text: #166534;
+    --pastel-sage: #E2ECE5;
+    --pastel-sage-text: #2D4D39;
+    --pastel-peach: #FFE8D6;
+    --pastel-peach-text: #C2410C;
+    --pastel-coral: #FFE4E8;
+    --pastel-coral-text: #BE123C;
+    --pastel-yellow: #FEF9C3;
+    --pastel-yellow-text: #A16207;
+    --pastel-sky: #E0F2FE;
+    --pastel-sky-text: #0369A1;
+    --pastel-lavender: #F3E8FF;
+    --pastel-lavender-text: #6D28D9;
   }
 
   .dark {
-    --background: #0A0A0A;
-    --foreground: #F8FAFC;
-    --surface: #121212;
-    --surface-elevated: #18181B;
-    --border: rgba(255, 255, 255, 0.08);
-    --muted: #A1A1AA;
-    --muted-foreground: #71717A;
+    /* ─── THEME A: DARK ELEGANT (Premium Dark) ────────────────────── */
+    --background: #101211;
+    --background-secondary: #171A18;
+    --surface: #1C211E;
+    --surface-secondary: #171A18;
+    --surface-elevated: #242A26;
+    --surface-inset: #141715;
+    --foreground: #F5F7F4;
+    --muted: #A6AEA8;
+    --muted-foreground: #A6AEA8;
+    --primary: #C8F169;
+    --primary-hover: #B4DF50;
+    --accent: #C8F169;
+    --accent-hover: #B4DF50;
+    --accent-soft: rgba(200, 241, 105, 0.15);
+    --border: #303832;
+    --border-subtle: #242A26;
+    --success: #8BCF9B;
+    --error: #F28B82;
   }
 
   body {
     background-color: var(--background);
     color: var(--foreground);
     font-feature-settings: "rlig" 1, "calt" 1;
-    transition: background-color 0.25s ease, color 0.25s ease;
+    transition: background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1), color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   }
 }
 
-/* Glassmorphism utility classes */
-.glass-panel {
-  background: rgba(18, 18, 18, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+/* ─── Modern Minimalism + Soft UI System ──────────────────────────── */
+
+/* Raised Surface */
+.neu-raised {
+  background: var(--surface);
+  box-shadow: 0 4px 20px -2px rgba(18, 51, 33, 0.05), 0 2px 6px -1px rgba(18, 51, 33, 0.03);
+  border: 1px solid var(--border);
 }
 
-.light .glass-panel {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+.dark .neu-raised {
+  background: var(--surface-elevated);
+  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.4), 0 1px 3px 0 rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border);
 }
 
-/* Neon glow utility */
-.neon-border {
-  border: 1px solid rgba(0, 255, 102, 0.4);
-  box-shadow: 0 0 15px -3px rgba(0, 255, 102, 0.25);
+/* Small Raised (for buttons, badges, chips) */
+.neu-raised-sm {
+  background: var(--surface);
+  box-shadow: 0 2px 8px -1px rgba(18, 51, 33, 0.05);
+  border: 1px solid var(--border);
 }
 
-.neon-text {
-  color: #00FF66;
-  text-shadow: 0 0 12px rgba(0, 255, 102, 0.4);
+.dark .neu-raised-sm {
+  background: var(--surface-elevated);
+  box-shadow: 0 2px 8px -1px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border);
+}
+
+/* Inset / Pressed Surface (for inputs, wells, search bars) */
+.neu-inset {
+  background: var(--surface-inset);
+  box-shadow: inset 0 2px 4px 0 rgba(18, 51, 33, 0.04), inset 0 1px 2px 0 rgba(18, 51, 33, 0.02);
+  border: 1px solid var(--border-subtle);
+}
+
+.dark .neu-inset {
+  background: var(--surface-inset);
+  box-shadow: inset 0 2px 5px 0 rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--border);
+}
+
+/* Card Surface */
+.neu-card {
+  background: var(--surface);
+  box-shadow: 0 4px 20px -2px rgba(18, 51, 33, 0.05), 0 2px 6px -1px rgba(18, 51, 33, 0.03);
+  border: 1px solid var(--border);
+  transition: box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease, transform 0.2s ease;
+}
+
+.neu-card:hover {
+  box-shadow: 0 10px 28px -4px rgba(18, 51, 33, 0.08), 0 4px 12px -2px rgba(18, 51, 33, 0.04);
+}
+
+.dark .neu-card {
+  background: var(--surface);
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.45), 0 2px 6px -1px rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
+}
+
+.dark .neu-card:hover {
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.6), 0 4px 12px -2px rgba(0, 0, 0, 0.35);
+}
+
+/* Tactile Soft Button */
+.neu-btn {
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: 0 2px 8px -1px rgba(18, 51, 33, 0.06);
+  border: 1px solid var(--border);
+  transition: all 0.15s ease-in-out;
+}
+
+.neu-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px -2px rgba(18, 51, 33, 0.1);
+  border-color: var(--primary);
+}
+
+.neu-btn:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 3px rgba(18, 51, 33, 0.1);
+}
+
+.dark .neu-btn {
+  background: var(--surface-elevated);
+  color: var(--foreground);
+  box-shadow: 0 2px 8px -1px rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border);
+}
+
+.dark .neu-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px -2px rgba(0, 0, 0, 0.5);
+  border-color: var(--primary);
+}
+
+.dark .neu-btn:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* Primary CTA Button (Lush Forest Green in Mint Fresh, Neon Lime in Dark Elegant) */
+.neu-btn-primary {
+  background: linear-gradient(135deg, #268951 0%, #1A693C 100%);
+  color: #FFFFFF;
+  box-shadow: 0 4px 16px -2px rgba(35, 128, 77, 0.35), 0 2px 4px 0 rgba(35, 128, 77, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-weight: 700;
+  transition: all 0.15s ease-in-out;
+}
+
+.neu-btn-primary:hover {
+  background: linear-gradient(135deg, #2C975A 0%, #1E7443 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px -2px rgba(35, 128, 77, 0.45), 0 3px 6px 0 rgba(35, 128, 77, 0.2);
+}
+
+.neu-btn-primary:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.dark .neu-btn-primary {
+  background: var(--primary);
+  color: #101211;
+  box-shadow: 0 4px 16px -2px rgba(200, 241, 105, 0.3);
+  border: 1px solid transparent;
+}
+
+.dark .neu-btn-primary:hover {
+  background: var(--primary-hover);
+  box-shadow: 0 6px 20px -2px rgba(200, 241, 105, 0.45);
+}
+
+/* Solid Clean Dropdown */
+.neu-dropdown {
+  background-color: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 14px 34px -4px rgba(32, 57, 43, 0.12), 0 2px 6px 0 rgba(32, 57, 43, 0.05) !important;
+}
+
+.dark .neu-dropdown {
+  background-color: var(--surface-elevated) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 18px 40px -4px rgba(0, 0, 0, 0.7), 0 2px 6px 0 rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Subtle focus indicators for accessibility */
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Custom scrollbars */
@@ -68,10 +244,94 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 255, 102, 0.2);
+  background: var(--border);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 255, 102, 0.4);
+  background: var(--muted);
+}
+
+/* ─── Mint Fresh Rich Pastel & Gradient Enhancements ───────────────── */
+
+/* Refreshing pastel ambient mesh for light mode hero & headers */
+.mint-mesh-bg {
+  background-image: 
+    radial-gradient(at 15% 15%, rgba(56, 189, 248, 0.08) 0px, transparent 55%),
+    radial-gradient(at 85% 12%, rgba(167, 139, 250, 0.07) 0px, transparent 55%),
+    radial-gradient(at 50% 60%, rgba(72, 187, 120, 0.07) 0px, transparent 50%),
+    radial-gradient(at 85% 85%, rgba(251, 146, 60, 0.06) 0px, transparent 55%),
+    radial-gradient(at 10% 90%, rgba(244, 63, 94, 0.05) 0px, transparent 50%);
+}
+
+.dark .mint-mesh-bg {
+  background-image: none;
+}
+
+/* Soft-tinted Pastel Card Variants (Light Mode) */
+.kpi-tint-sky {
+  background: linear-gradient(135deg, rgba(224, 242, 254, 0.6) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border-color: rgba(56, 189, 248, 0.35);
+}
+.dark .kpi-tint-sky {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.kpi-tint-mint {
+  background: linear-gradient(135deg, rgba(214, 244, 228, 0.65) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border-color: rgba(35, 128, 77, 0.3);
+}
+.dark .kpi-tint-mint {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.kpi-tint-amber {
+  background: linear-gradient(135deg, rgba(254, 249, 195, 0.6) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border-color: rgba(234, 179, 8, 0.35);
+}
+.dark .kpi-tint-amber {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.kpi-tint-purple {
+  background: linear-gradient(135deg, rgba(243, 232, 255, 0.6) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border-color: rgba(168, 85, 247, 0.3);
+}
+.dark .kpi-tint-purple {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.kpi-tint-rose {
+  background: linear-gradient(135deg, rgba(255, 228, 232, 0.6) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border-color: rgba(244, 63, 94, 0.3);
+}
+.dark .kpi-tint-rose {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.kpi-tint-peach {
+  background: linear-gradient(135deg, rgba(255, 237, 213, 0.6) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border-color: rgba(249, 115, 22, 0.35);
+}
+.dark .kpi-tint-peach {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+/* Flavor card subtle hover glow (Light Mode) */
+.flavor-card-hover {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
+}
+.flavor-card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 32px -4px rgba(22, 58, 36, 0.12), 0 4px 12px -2px rgba(22, 58, 36, 0.06);
+}
+.dark .flavor-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.6);
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import {
   Search,
@@ -8,21 +9,41 @@ import {
   Zap,
   Check,
   Sparkles,
-  Info,
-  ShieldCheck,
+  Heart,
   ArrowRight,
+  ShieldCheck,
 } from "lucide-react";
 import { VYRA_FLAVORS, ProductDefinition } from "@/lib/constants";
 import { useCart } from "@/components/cart/CartProvider";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { getCustomerFavorites, toggleCustomerFavorite } from "@/lib/customer/data";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { cn } from "@/lib/utils";
 
 export default function ShopPage() {
+  const { user, profile } = useAuth();
+  const customerId = (profile as any)?.customer_id || (user as any)?.customer_id || user?.id || "";
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFlavor, setSelectedFlavor] = useState<string>("all");
   const [addedAnimation, setAddedAnimation] = useState<string | null>(null);
+  const [favorites, setFavorites] = useState<string[]>([]);
   const { items, addItem, totalItems, subtotal } = useCart();
+
+  useEffect(() => {
+    if (customerId) {
+      setFavorites(getCustomerFavorites(customerId));
+    }
+  }, [customerId]);
+
+  const handleToggleFavorite = (productId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!customerId) return;
+    const updated = toggleCustomerFavorite(customerId, productId);
+    setFavorites(updated);
+  };
 
   const filteredProducts = VYRA_FLAVORS.filter((p) => {
     const matchesSearch =
@@ -40,44 +61,43 @@ export default function ShopPage() {
       flavor: product.flavor,
       price: product.priceInr,
       quantity: 1,
-      image_path: null,
+      image_path: product.imagePath ?? null,
       accentColor: product.accentColor,
     });
     setAddedAnimation(product.id);
     setTimeout(() => setAddedAnimation(null), 1500);
   };
 
-  // Per-product quantity from real cart
   const getQty = (id: string) => items.find((i) => i.product_id === id)?.quantity ?? 0;
 
   return (
-    <div className="min-h-screen py-10 md:py-16">
+    <div className="min-h-screen py-10 md:py-16 bg-background text-foreground transition-colors mint-mesh-bg">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
         {/* Store Header */}
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border-b border-border/40 pb-8">
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full border border-[#00FF66]/30 bg-[#00FF66]/10 text-xs font-semibold text-[#00FF66] mb-2">
-              <Zap className="w-3 h-3" />
-              <span>Direct From Warehouse • ₹149 per Can</span>
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border-b border-border pb-8">
+          <div className="space-y-1.5">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full border border-primary/30 bg-primary/10 text-xs font-semibold text-primary shadow-sm">
+              <Zap className="w-3.5 h-3.5 text-primary" />
+              <span>Bio-Enhanced Functional Energy • ₹149 per Can</span>
             </div>
             <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground">
-              Vyra Pulse Store
+              Vyra Pulse Beverage Catalog
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Select your bio-enhanced flavors. Free delivery on orders above ₹445 (3+ cans).
+            <p className="text-sm text-muted-foreground">
+              Select your precision-formulated craft flavors. Free shipping on orders of 3 or more cans (₹447+).
             </p>
           </div>
 
           {/* Quick Cart Status Bar */}
-          <div className="flex items-center gap-4 bg-surface/80 border border-white/10 rounded-2xl p-3 px-5 shadow-sm">
+          <div className="flex items-center gap-4 neu-raised rounded-2xl p-3 px-5 transition-all shadow-sm">
             <div className="text-right">
-              <p className="text-xs text-muted-foreground">Active Cart</p>
-              <p className="text-sm font-bold text-foreground">
+              <p className="text-xs text-muted-foreground font-medium">Active Cart</p>
+              <p className="text-sm font-bold text-foreground font-mono">
                 {totalItems} {totalItems === 1 ? "Can" : "Cans"} • ₹{subtotal.toFixed(2)}
               </p>
             </div>
             <Link href="/cart">
-              <Button size="sm" className="gap-2">
+              <Button size="sm" variant="primary" className="gap-2">
                 <ShoppingBag className="w-4 h-4" />
                 Checkout
               </Button>
@@ -92,14 +112,14 @@ export default function ShopPage() {
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Search by flavor, ingredient, or name..."
+              placeholder="Search by flavor, extract, or ingredients..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 text-sm rounded-xl border border-white/10 bg-surface/80 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-[#00FF66]/40 focus:border-[#00FF66]/60 transition-all"
+              className="w-full pl-10 pr-4 py-2.5 text-sm rounded-xl neu-inset text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary transition-all bg-transparent"
             />
           </div>
 
-          {/* Category Filter Chips */}
+          {/* Category Filter Chips with Distinctive Pastel Accents */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
             {[
               { id: "all", label: "All 8 Flavors" },
@@ -113,11 +133,12 @@ export default function ShopPage() {
                 key={f.id}
                 onClick={() => setSelectedFlavor(f.id)}
                 type="button"
-                className={`text-xs px-3.5 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all ${
+                className={cn(
+                  "text-xs px-4 py-2 rounded-xl font-semibold whitespace-nowrap transition-all",
                   selectedFlavor === f.id
-                    ? "bg-[#00FF66] text-black font-semibold shadow-neon-glow-sm"
-                    : "bg-surface/60 border border-white/10 text-muted-foreground hover:text-foreground"
-                }`}
+                    ? "neu-btn-primary shadow-sm"
+                    : "neu-btn text-muted-foreground hover:text-foreground"
+                )}
               >
                 {f.label}
               </button>
@@ -130,86 +151,129 @@ export default function ShopPage() {
           {filteredProducts.map((p) => {
             const qty = getQty(p.id);
             const isJustAdded = addedAnimation === p.id;
+            const isFavorite = favorites.includes(p.id);
 
             return (
               <Card
                 key={p.id}
                 id={p.id}
-                className="group relative flex flex-col justify-between overflow-hidden border-white/10 hover:border-[#00FF66]/50 transition-all duration-300"
+                className="group relative flex flex-col justify-between overflow-hidden rounded-3xl neu-card flavor-card-hover border border-border"
               >
                 {/* Flavor accent bar */}
                 <div
-                  className="h-1.5 w-full"
+                  className="h-1.5 w-full shrink-0"
                   style={{ backgroundColor: p.accentColor }}
                 />
 
-                <div className="p-6 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span
-                      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${p.badgeClass}`}
-                    >
-                      {p.flavor}
-                    </span>
-                    <span className="text-xs font-mono text-muted-foreground">
-                      {p.volumeMl}ml • {p.caffeineMg}mg
-                    </span>
-                  </div>
+                {/* Favorite Button (top-right overlay) */}
+                {customerId && (
+                  <button
+                    type="button"
+                    onClick={(e) => handleToggleFavorite(p.id, e)}
+                    aria-label={isFavorite ? `Remove ${p.name} from favorites` : `Add ${p.name} to favorites`}
+                    className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full neu-raised-sm flex items-center justify-center transition-transform hover:scale-110 shadow-sm"
+                  >
+                    <Heart
+                      className={cn(
+                        "w-4 h-4 transition-colors",
+                        isFavorite ? "fill-rose-500 text-rose-500" : "text-muted-foreground hover:text-foreground"
+                      )}
+                    />
+                  </button>
+                )}
 
+                {/* Product can image in soft inset frame with flavor radial pastel glow */}
+                {p.imagePath && (
+                  <div
+                    className="flex items-center justify-center h-44 w-full neu-inset px-4 py-3 overflow-hidden"
+                    style={{
+                      background: `radial-gradient(circle, ${p.accentColor}18 0%, transparent 75%)`,
+                    }}
+                  >
+                    <Image
+                      src={p.imagePath}
+                      alt={p.name}
+                      width={120}
+                      height={150}
+                      className="object-contain h-full w-auto drop-shadow-md group-hover:scale-105 transition-transform duration-300"
+                    />
+                  </div>
+                )}
+
+                <div className="p-5 space-y-3.5 flex-1 flex flex-col justify-between">
                   <div>
-                    <h3 className="text-lg font-bold text-foreground group-hover:text-[#00FF66] transition-colors">
+                    <div className="flex items-center justify-between mb-2">
+                      <span
+                        className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full neu-raised-sm"
+                        style={{
+                          backgroundColor: `${p.accentColor}20`,
+                          color: p.accentColor === "#CCFF00" ? "#3A6808" : p.accentColor,
+                          borderColor: `${p.accentColor}40`,
+                        }}
+                      >
+                        {p.flavor}
+                      </span>
+                      <span className="text-[11px] font-mono text-muted-foreground font-semibold">
+                        {p.volumeMl}ml • {p.caffeineMg}mg
+                      </span>
+                    </div>
+
+                    <h3 className="text-base font-bold text-foreground group-hover:text-primary transition-colors">
                       {p.name.replace("Vyra Pulse ", "")}
                     </h3>
-                    <p className="text-xs font-semibold text-[#00FF66] mt-0.5">
+                    <p className="text-xs font-semibold text-primary mt-0.5">
                       {p.tagline}
                     </p>
-                    <p className="text-xs text-muted-foreground mt-2 line-clamp-3 leading-relaxed">
+                    <p className="text-xs text-muted-foreground mt-2 line-clamp-2 leading-relaxed">
                       {p.description}
                     </p>
                   </div>
 
                   {/* Key Ingredients Pill */}
-                  <div className="text-[11px] text-muted-foreground bg-white/5 rounded-lg p-2.5 space-y-1">
-                    <p className="font-semibold text-foreground/80 flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-[#00FF66]" /> Key Ingredients:
+                  <div className="text-[11px] text-muted-foreground neu-inset rounded-xl p-3 space-y-1">
+                    <p className="font-semibold text-foreground flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5 text-primary" /> Key Ingredients:
                     </p>
-                    <p className="text-[10px] leading-tight">
+                    <p className="text-[10px] leading-tight line-clamp-2">
                       {p.keyIngredients}
                     </p>
                   </div>
-                </div>
 
-                {/* Card Action & Price */}
-                <div className="p-6 pt-0 border-t border-white/5 flex items-center justify-between mt-auto">
-                  <div>
-                    <span className="text-xl font-extrabold text-foreground">
-                      ₹{p.priceInr}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground block">
-                      Incl. all taxes
-                    </span>
+                  {/* Stock Status */}
+                  <div className="flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>In Stock • Ready to dispatch</span>
                   </div>
 
-                  <Button
-                    onClick={() => handleAddToCart(p)}
-                    size="sm"
-                    className={`gap-1.5 transition-all ${
-                      isJustAdded
-                        ? "bg-white text-black border-transparent"
-                        : ""
-                    }`}
-                  >
-                    {isJustAdded ? (
-                      <>
-                        <Check className="w-4 h-4 text-emerald-600" />
-                        Added
-                      </>
-                    ) : (
-                      <>
-                        <ShoppingBag className="w-3.5 h-3.5" />
-                        {qty > 0 ? `Add More (${qty})` : "Add to Cart"}
-                      </>
-                    )}
-                  </Button>
+                  {/* Card Action & Price */}
+                  <div className="pt-3 border-t border-border flex items-center justify-between mt-auto">
+                    <div>
+                      <span className="text-xl font-extrabold text-foreground font-mono">
+                        ₹{p.priceInr}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground block">
+                        Taxes included
+                      </span>
+                    </div>
+
+                    <Button
+                      onClick={() => handleAddToCart(p)}
+                      size="sm"
+                      className="gap-1.5 transition-all"
+                    >
+                      {isJustAdded ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Added</span>
+                        </>
+                      ) : (
+                        <>
+                          <ShoppingBag className="w-3.5 h-3.5" />
+                          <span>{qty > 0 ? `Add (${qty})` : "Add to Cart"}</span>
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </div>
               </Card>
             );
@@ -217,21 +281,21 @@ export default function ShopPage() {
         </div>
 
         {/* Free Shipping Callout */}
-        <div className="rounded-2xl border border-[#00FF66]/30 bg-[#00FF66]/5 p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="rounded-3xl border border-primary/25 bg-primary/5 neu-card p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-[#00FF66]/20 flex items-center justify-center text-[#00FF66]">
+            <div className="w-12 h-12 rounded-2xl bg-primary/15 flex items-center justify-center text-primary shrink-0">
               <Sparkles className="w-6 h-6" />
             </div>
             <div>
-              <h4 className="font-bold text-foreground">Pulse Delivery Policy</h4>
+              <h4 className="font-bold text-foreground">Free Express Shipping</h4>
               <p className="text-xs text-muted-foreground">
-                Orders with 3 or more cans (₹447+) automatically qualify for free standard delivery across all 10 service cities.
+                Orders with 3 or more cans (₹445+) qualify for free delivery across Bengaluru, Chennai, Mumbai, Delhi, and all service cities.
               </p>
             </div>
           </div>
           <Link href="/cart">
             <Button size="sm" variant="secondary" className="whitespace-nowrap">
-              Review Cart & Checkout <ArrowRight className="w-4 h-4 ml-1" />
+              Review Cart &amp; Checkout <ArrowRight className="w-4 h-4 ml-1" />
             </Button>
           </Link>
         </div>

@@ -26,15 +26,39 @@ import { getFullBIDataset, extractDrilldownRecords } from "@/lib/bi/data";
 import { BIFilterBar } from "@/components/admin/bi/BIFilterBar";
 import { BICategoryNav } from "@/components/admin/bi/BICategoryNav";
 import { BIDrilldownModal } from "@/components/admin/bi/BIDrilldownModal";
-import { CategoryASalesRevenue } from "@/components/admin/bi/categories/CategoryASalesRevenue";
-import { CategoryBProfitability } from "@/components/admin/bi/categories/CategoryBProfitability";
-import { CategoryCCustomerAnalytics } from "@/components/admin/bi/categories/CategoryCCustomerAnalytics";
-import { CategoryDProductPerformance } from "@/components/admin/bi/categories/CategoryDProductPerformance";
-import { CategoryERegionalAnalytics } from "@/components/admin/bi/categories/CategoryERegionalAnalytics";
-import { CategoryFOperationalAnalytics } from "@/components/admin/bi/categories/CategoryFOperationalAnalytics";
-import { CategoryGInventoryAnalytics } from "@/components/admin/bi/categories/CategoryGInventoryAnalytics";
-import { CategoryHMarketingLoyalty } from "@/components/admin/bi/categories/CategoryHMarketingLoyalty";
-import { CategoryICustomerExperience } from "@/components/admin/bi/categories/CategoryICustomerExperience";
+import dynamic from "next/dynamic";
+
+const CategorySkeleton = () => (
+  <div className="p-6 rounded-2xl border border-border/40 bg-surface/40 animate-pulse space-y-4">
+    <div className="h-6 w-1/3 bg-white/10 rounded" />
+    <div className="h-40 w-full bg-white/5 rounded-xl" />
+  </div>
+);
+
+const CategoryASalesRevenue = dynamic(
+  () => import("@/components/admin/bi/categories/CategoryASalesRevenue").then((m) => m.CategoryASalesRevenue),
+  { loading: () => <CategorySkeleton /> }
+);
+const CategoryDProductPerformance = dynamic(
+  () => import("@/components/admin/bi/categories/CategoryDProductPerformance").then((m) => m.CategoryDProductPerformance),
+  { loading: () => <CategorySkeleton /> }
+);
+const CategoryCCustomerAnalytics = dynamic(
+  () => import("@/components/admin/bi/categories/CategoryCCustomerAnalytics").then((m) => m.CategoryCCustomerAnalytics),
+  { loading: () => <CategorySkeleton /> }
+);
+const CategoryFOperationalAnalytics = dynamic(
+  () => import("@/components/admin/bi/categories/CategoryFOperationalAnalytics").then((m) => m.CategoryFOperationalAnalytics),
+  { loading: () => <CategorySkeleton /> }
+);
+const CategoryGInventoryAnalytics = dynamic(
+  () => import("@/components/admin/bi/categories/CategoryGInventoryAnalytics").then((m) => m.CategoryGInventoryAnalytics),
+  { loading: () => <CategorySkeleton /> }
+);
+const CategoryHMarketingLoyalty = dynamic(
+  () => import("@/components/admin/bi/categories/CategoryHMarketingLoyalty").then((m) => m.CategoryHMarketingLoyalty),
+  { loading: () => <CategorySkeleton /> }
+);
 
 const DEFAULT_FILTERS: BIFilterState = {
   dateRange: "all",
@@ -114,14 +138,14 @@ export default function AdminAnalyticsPage() {
                   POSTGRESQL LIVE
                 </span>
               ) : (
-                <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full border border-[#00FF66]/30 bg-[#00FF66]/10 text-[#00FF66] font-bold flex items-center gap-1">
+                <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full border border-primary/30 bg-primary/10 text-primary font-bold flex items-center gap-1">
                   <ShieldCheck className="w-3 h-3" />
                   POSTGRESQL VERIFIED SEED REPLICA
                 </span>
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              9 analytical categories, drilldown telemetry, cross-tab filters, and mathematical fidelity across all 100 orders.
+              6 core analytical dimensions: Sales, Products, Customers, Orders, Inventory, and Discounts &amp; Offers.
             </p>
           </div>
 
@@ -159,7 +183,7 @@ export default function AdminAnalyticsPage() {
         {/* Loading State */}
         {isLoading || !dataset ? (
           <div className="p-20 flex flex-col items-center justify-center gap-3">
-            <Loader2 className="w-8 h-8 animate-spin text-[#00FF66]" />
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
             <p className="text-xs font-mono text-muted-foreground uppercase tracking-widest">
               Aggregating Business Intelligence Datasets...
             </p>
@@ -168,10 +192,10 @@ export default function AdminAnalyticsPage() {
           <div className="space-y-10">
             {/* Top-Level Executive KPIs */}
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-4">
-              <Card className="p-5 border-white/10 space-y-2">
+              <Card className="neu-card p-5 border-border/40 space-y-2">
                 <div className="flex items-center justify-between text-muted-foreground">
                   <span className="text-xs font-medium">Net Realized Revenue</span>
-                  <div className="p-1.5 rounded-lg bg-[#00FF66]/10 text-[#00FF66]">
+                  <div className="neu-raised-sm p-1.5 rounded-lg text-primary">
                     <TrendingUp className="w-4 h-4" />
                   </div>
                 </div>
@@ -185,10 +209,10 @@ export default function AdminAnalyticsPage() {
                 </div>
               </Card>
 
-              <Card className="p-5 border-white/10 space-y-2">
+              <Card className="neu-card p-5 border-border/40 space-y-2">
                 <div className="flex items-center justify-between text-muted-foreground">
                   <span className="text-xs font-medium">Completed Orders</span>
-                  <div className="p-1.5 rounded-lg bg-sky-500/10 text-sky-400">
+                  <div className="neu-raised-sm p-1.5 rounded-lg text-sky-500 dark:text-sky-400">
                     <ShoppingCart className="w-4 h-4" />
                   </div>
                 </div>
@@ -202,10 +226,10 @@ export default function AdminAnalyticsPage() {
                 </div>
               </Card>
 
-              <Card className="p-5 border-white/10 space-y-2">
+              <Card className="neu-card p-5 border-border/40 space-y-2">
                 <div className="flex items-center justify-between text-muted-foreground">
                   <span className="text-xs font-medium">Average Order Value</span>
-                  <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400">
+                  <div className="neu-raised-sm p-1.5 rounded-lg text-amber-500 dark:text-amber-400">
                     <Zap className="w-4 h-4" />
                   </div>
                 </div>
@@ -219,10 +243,10 @@ export default function AdminAnalyticsPage() {
                 </div>
               </Card>
 
-              <Card className="p-5 border-white/10 space-y-2">
+              <Card className="neu-card p-5 border-border/40 space-y-2">
                 <div className="flex items-center justify-between text-muted-foreground">
                   <span className="text-xs font-medium">Repeat Purchase Rate</span>
-                  <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400">
+                  <div className="neu-raised-sm p-1.5 rounded-lg text-purple-500 dark:text-purple-400">
                     <Repeat className="w-4 h-4" />
                   </div>
                 </div>
@@ -237,30 +261,12 @@ export default function AdminAnalyticsPage() {
               </Card>
             </div>
 
-            {/* Category Views: Renders either Overview (all categories concise) or Expanded single category */}
+            {/* 6 Prioritized Core Business Intelligence Categories */}
             {(activeCategory === "all" || activeCategory === "sales_revenue") && (
               <CategoryASalesRevenue
                 dataset={dataset}
                 isExpanded={activeCategory === "sales_revenue"}
                 onViewAll={() => setActiveCategory("sales_revenue")}
-                onDrilldown={handleDrilldown}
-              />
-            )}
-
-            {(activeCategory === "all" || activeCategory === "profitability") && (
-              <CategoryBProfitability
-                dataset={dataset}
-                isExpanded={activeCategory === "profitability"}
-                onViewAll={() => setActiveCategory("profitability")}
-                onDrilldown={handleDrilldown}
-              />
-            )}
-
-            {(activeCategory === "all" || activeCategory === "customer_analytics") && (
-              <CategoryCCustomerAnalytics
-                dataset={dataset}
-                isExpanded={activeCategory === "customer_analytics"}
-                onViewAll={() => setActiveCategory("customer_analytics")}
                 onDrilldown={handleDrilldown}
               />
             )}
@@ -274,11 +280,11 @@ export default function AdminAnalyticsPage() {
               />
             )}
 
-            {(activeCategory === "all" || activeCategory === "regional_analytics") && (
-              <CategoryERegionalAnalytics
+            {(activeCategory === "all" || activeCategory === "customer_analytics") && (
+              <CategoryCCustomerAnalytics
                 dataset={dataset}
-                isExpanded={activeCategory === "regional_analytics"}
-                onViewAll={() => setActiveCategory("regional_analytics")}
+                isExpanded={activeCategory === "customer_analytics"}
+                onViewAll={() => setActiveCategory("customer_analytics")}
                 onDrilldown={handleDrilldown}
               />
             )}
@@ -306,15 +312,6 @@ export default function AdminAnalyticsPage() {
                 dataset={dataset}
                 isExpanded={activeCategory === "marketing_loyalty"}
                 onViewAll={() => setActiveCategory("marketing_loyalty")}
-                onDrilldown={handleDrilldown}
-              />
-            )}
-
-            {(activeCategory === "all" || activeCategory === "customer_experience") && (
-              <CategoryICustomerExperience
-                dataset={dataset}
-                isExpanded={activeCategory === "customer_experience"}
-                onViewAll={() => setActiveCategory("customer_experience")}
                 onDrilldown={handleDrilldown}
               />
             )}

@@ -15,6 +15,7 @@ import {
   Pie,
   LineChart,
   Line,
+  LabelList,
 } from "recharts";
 import { ArrowRight, Users, Award, Eye } from "lucide-react";
 import { FullBIDataset, TopCustomerPoint } from "@/lib/bi/types";
@@ -132,19 +133,62 @@ export function CategoryCCustomerAnalytics({
         {/* 8. Purchase Frequency Distribution (Histogram) */}
         <BIChartCard
           title="8. Purchase Frequency Distribution"
-          subtitle="Orders per customer histogram showing repeat velocity"
-          definition="Counts customers having placed exactly 1, 2, 3, or 4+ orders."
+          subtitle="Orders per customer histogram showing repeat velocity (excluding cancellations)"
+          definition="Counts customers having placed exactly 1, 2, 3, or 4+ fulfilled orders."
           onDrilldown={() => onDrilldown("customer", "frequency", "Order Frequency Groups")}
         >
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={customerAnalytics.frequencyBuckets} margin={{ top: 10, right: 10, bottom: 0, left: -10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="orderBucket" tick={{ fill: "#71717A", fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: "#71717A", fontSize: 10 }} axisLine={false} tickLine={false} />
-              <Tooltip content={<BIHighContrastTooltip valueSuffix=" Customers" />} />
-              <Bar dataKey="customerCount" name="Customers" fill="#38BDF8" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {(() => {
+            const activeBuckets = customerAnalytics.frequencyBuckets.filter((b) => b.customerCount > 0);
+            if (activeBuckets.length === 0) {
+              return (
+                <div className="h-64 flex flex-col items-center justify-center text-center p-6 space-y-2">
+                  <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-muted-foreground">
+                    <Users className="w-5 h-5 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">No Purchase Frequency Data</p>
+                  <p className="text-xs text-muted-foreground max-w-xs">
+                    No customers with fulfilled orders match the selected filters.
+                  </p>
+                </div>
+              );
+            }
+            return (
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={activeBuckets} margin={{ top: 20, right: 20, bottom: 5, left: 15 }} barSize={44}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                  <XAxis dataKey="orderBucket" tick={{ fill: "#A1A1AA", fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: "#71717A", fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const item = payload[0].payload;
+                      return (
+                        <div className="bg-[#18181b] border border-white/20 rounded-xl p-3 text-xs shadow-2xl space-y-1.5 text-white backdrop-blur-xl">
+                          <p className="font-bold text-[#00FF66] font-mono">{item.orderBucket}</p>
+                          <p className="text-neutral-300">
+                            Customers: <span className="font-bold text-white font-mono">{item.customerCount}</span>
+                          </p>
+                          <p className="text-neutral-300">
+                            Share of Active Buyers:{" "}
+                            <span className="font-bold text-[#00E5FF] font-mono">{item.percentage}%</span>
+                          </p>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Bar dataKey="customerCount" name="Customers" fill="#38BDF8" radius={[4, 4, 0, 0]}>
+                    <LabelList
+                      dataKey="customerCount"
+                      position="top"
+                      fill="#F5F7F4"
+                      fontSize={11}
+                      formatter={(val: number) => `${val}`}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            );
+          })()}
         </BIChartCard>
 
         {/* 4. Customer Acquisition Trend */}

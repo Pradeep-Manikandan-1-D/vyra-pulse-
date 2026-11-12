@@ -442,7 +442,7 @@ export function Can3D({ className = "", initialFlavorId = "VP-CIT-001" }: Can3DP
 
       {/* Top Floating Badge */}
       <div className="absolute top-4 left-4 z-20 pointer-events-none flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 border border-white/10 backdrop-blur-md">
-        <Sparkles className="w-3.5 h-3.5 text-[#00FF66] animate-pulse" />
+        <Sparkles className="w-3.5 h-3.5 text-primary animate-pulse" />
         <span className="text-[10px] font-mono tracking-wider uppercase text-neutral-300 font-semibold">
           Interactive 3D {modelType === "bottle" ? "Bottle" : "Can"} • Drag To Rotate
         </span>
@@ -456,7 +456,7 @@ export function Can3D({ className = "", initialFlavorId = "VP-CIT-001" }: Can3DP
             onClick={() => setModelType("bottle")}
             className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
               modelType === "bottle"
-                ? "bg-[#00FF66] text-black shadow-sm"
+                ? "bg-primary text-black shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -467,7 +467,7 @@ export function Can3D({ className = "", initialFlavorId = "VP-CIT-001" }: Can3DP
             onClick={() => setModelType("can")}
             className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
               modelType === "can"
-                ? "bg-[#00FF66] text-black shadow-sm"
+                ? "bg-primary text-black shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -479,7 +479,7 @@ export function Can3D({ className = "", initialFlavorId = "VP-CIT-001" }: Can3DP
           onClick={handleResetAngle}
           type="button"
           title="Reset Angle"
-          className="p-2 rounded-xl bg-black/70 border border-white/15 backdrop-blur-md text-muted-foreground hover:text-[#00FF66] transition-colors"
+          className="p-2 rounded-xl bg-black/70 border border-white/15 backdrop-blur-md text-muted-foreground hover:text-primary transition-colors"
         >
           <RotateCcw className="w-4 h-4" />
         </button>

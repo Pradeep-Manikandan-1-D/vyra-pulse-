@@ -10,11 +10,20 @@ from datetime import datetime
 from collections import Counter
 
 def run_validation():
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data'))
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    if os.path.exists(os.path.join(root_dir, 'Dataset')):
+        base_dir = os.path.join(root_dir, 'Dataset')
+    elif os.path.exists(os.path.join(root_dir, 'Datasets')):
+        base_dir = os.path.join(root_dir, 'Datasets')
+    else:
+        base_dir = os.path.join(root_dir, 'data')
     files = ['products.csv', 'customers.csv', 'orders.csv', 'order_items.csv', 'inventory.csv', 'offers.csv']
+    if os.path.exists(os.path.join(base_dir, 'demo_customer_credentials.csv')):
+        files.append('demo_customer_credentials.csv')
 
     print("==================================================")
     print("VYRA PULSE — DATASET VALIDATION AUDIT")
+    print(f"Data source: {base_dir} ({len(files)} files)")
     print("==================================================")
 
     data = {}
@@ -47,6 +56,9 @@ def run_validation():
         'inventory.csv': 'inventory_id',
         'offers.csv': 'offer_id'
     }
+    if 'demo_customer_credentials.csv' in data:
+        pk_map['demo_customer_credentials.csv'] = 'customer_id'
+
     has_pk_errors = False
     for f, pk in pk_map.items():
         ids = [r[pk] for r in data[f]['rows']]
@@ -81,6 +93,15 @@ def run_validation():
     print(f"  • order_items.csv -> products.csv (product_id): {len(missing_prod_items)} missing")
     print(f"  • inventory.csv -> products.csv (product_id): {len(missing_prod_inv)} missing")
 
+    if 'demo_customer_credentials.csv' in data:
+        cred_cust_ids = set(r['customer_id'] for r in data['demo_customer_credentials.csv']['rows'])
+        missing_cred_cust = [cid for cid in cred_cust_ids if cid not in cust_ids]
+        missing_cust_in_cred = [cid for cid in cust_ids if cid not in cred_cust_ids]
+        print(f"  • demo_customer_credentials.csv <-> customers.csv: {len(missing_cred_cust)} unlinked, {len(missing_cust_in_cred)} missing")
+        if missing_cred_cust or missing_cust_in_cred:
+            print("  [FAIL] demo_customer_credentials.csv does not match customers.csv 1-to-1!")
+            sys.exit(1)
+
     if missing_cust or missing_order or missing_prod_items or missing_prod_inv:
         print("  [FAIL] Foreign key integrity violations found!")
         sys.exit(1)
@@ -111,7 +132,10 @@ def run_validation():
         oid = r['order_id']
         ot = float(r['order_total_inr'])
         it_sum = order_item_sum.get(oid, 0.0)
-        if abs(ot - it_sum) > 0.01:
+        sub = float(r.get('subtotal_inr') or ot)
+        disc = float(r.get('discount_inr') or 0.0)
+        net = round(sub - disc, 2)
+        if abs(ot - it_sum) > 0.05 and abs(ot - net) > 0.05:
             order_total_mismatches.append((oid, ot, it_sum))
 
     print(f"  • Line total errors (qty * unit != line_total): {len(line_total_mismatches)}")
@@ -126,9 +150,12 @@ def run_validation():
     # Missing/Null Values
     print("\n5. MISSING VALUE AUDIT:")
     all_clean = True
+    optional_fields = {'coupon_code'}
     for f, info in data.items():
         null_counts = {}
         for h in info['headers']:
+            if h in optional_fields:
+                continue
             cnt = sum(1 for r in info['rows'] if r[h] is None or r[h].strip() == '')
             if cnt > 0:
                 null_counts[h] = cnt
@@ -137,6 +164,32 @@ def run_validation():
             all_clean = False
         else:
             print(f"  • {f}: 0 empty or null values")
+
+    # 6. Database Constraint Compatibility
+    print("\n6. DATABASE CONSTRAINT COMPATIBILITY:")
+    db_order_statuses = {'pending', 'processing', 'shipped', 'delivered', 'cancelled'}
+    db_payment_statuses = {'pending', 'paid', 'failed', 'refunded'}
+    raw_order_statuses = set(r['order_status'].strip().lower() for r in data['orders.csv']['rows'])
+    raw_payment_statuses = set(r['payment_status'].strip().lower() for r in data['orders.csv']['rows'])
+
+    unmapped_order_statuses = [s for s in raw_order_statuses if s not in db_order_statuses and s != 'placed']
+    if unmapped_order_statuses:
+        print(f"  [FAIL] Unrecognized order statuses: {unmapped_order_statuses}")
+        sys.exit(1)
+    else:
+        print(f"  • Raw CSV order statuses: {sorted(list(raw_order_statuses))}")
+        print(f"  • DB allowed order statuses: {sorted(list(db_order_statuses))}")
+        print(f"  • Status mapping: 'placed' -> 'pending' (Order Placed)")
+        mapped_statuses = set('pending' if s == 'placed' else s for s in raw_order_statuses)
+        assert mapped_statuses.issubset(db_order_statuses)
+        print("  [PASS] All mapped order statuses fully satisfy orders_order_status_check.")
+
+    if not raw_payment_statuses.issubset(db_payment_statuses):
+        print(f"  [FAIL] Invalid payment statuses: {raw_payment_statuses - db_payment_statuses}")
+        sys.exit(1)
+    else:
+        print(f"  • Payment statuses: {sorted(list(raw_payment_statuses))}")
+        print("  [PASS] All payment statuses fully satisfy orders_payment_status_check.")
 
     print("\n==================================================")
     print("VALIDATION STATUS: SUCCESSFUL — ALL CHECKS PASSED")

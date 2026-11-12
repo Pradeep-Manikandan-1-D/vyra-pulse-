@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   Clock,
   ExternalLink,
+  AlertCircle,
 } from "lucide-react";
 import { AdminSidebar } from "@/components/layout/AdminSidebar";
 import { Card } from "@/components/ui/Card";
@@ -23,11 +24,12 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { CSV_ORDERS, CSV_CUSTOMERS, CSV_INVENTORY } from "@/lib/bi/seed-data";
 
 interface RecentOrderSummary {
   id: string;
   order_code: string;
-  customer_name?: string;
+  customer_name: string;
   total_amount: number;
   order_status: string;
   payment_status: string;
@@ -42,131 +44,231 @@ export default function AdminOverviewPage() {
   const [lowStockCount, setLowStockCount] = useState<number | null>(null);
   const [recentOrders, setRecentOrders] = useState<RecentOrderSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [queryError, setQueryError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<string>("");
 
   const loadMetrics = useCallback(async () => {
     setIsLoading(true);
+    setQueryError(null);
     const supabase = createClient();
 
     if (supabase && isSupabaseConfigured()) {
       try {
         const [ordersRes, customersRes, inventoryRes, recentRes] = await Promise.all([
-          supabase.from("orders").select("total_amount, payment_status"),
-          supabase.from("customers").select("id", { count: "exact", head: true }),
-          supabase.from("inventory").select("stock_quantity, reorder_level"),
+          // 1. All orders for revenue & total count aggregation
+          supabase
+            .from("orders")
+            .select("order_total_inr, payment_status, order_status"),
+
+          // 2. Exact customer count using primary key
+          supabase
+            .from("customers")
+            .select("customer_id", { count: "exact", head: true }),
+
+          // 3. Inventory for low-stock threshold evaluation
+          supabase
+            .from("inventory")
+            .select("stock_on_hand, reorder_level"),
+
+          // 4. Recent 5 orders with joined customer details
           supabase
             .from("orders")
             .select(`
-              id,
-              order_code,
-              total_amount,
+              order_id,
+              order_total_inr,
               order_status,
               payment_status,
-              created_at,
-              customers (full_name)
+              ordered_at,
+              customers (first_name, last_name)
             `)
-            .order("created_at", { ascending: false })
+            .order("ordered_at", { ascending: false })
             .limit(5),
         ]);
 
+        // Check for any query failures from Supabase
+        const errors = [
+          ordersRes.error ? `Orders query: ${ordersRes.error.message}` : null,
+          customersRes.error ? `Customers query: ${customersRes.error.message}` : null,
+          inventoryRes.error ? `Inventory query: ${inventoryRes.error.message}` : null,
+          recentRes.error ? `Recent transactions query: ${recentRes.error.message}` : null,
+        ].filter(Boolean);
+
+        if (errors.length > 0) {
+          const combinedMsg = errors.join(" | ");
+          console.error("Supabase metrics query error:", combinedMsg, {
+            ordersError: ordersRes.error,
+            customersError: customersRes.error,
+            inventoryError: inventoryRes.error,
+            recentError: recentRes.error,
+          });
+          setQueryError(combinedMsg);
+          setIsLoading(false);
+          setLastRefreshed(new Date().toLocaleTimeString());
+          return;
+        }
+
+        // Process Revenue & Orders metrics
         if (ordersRes.data) {
-          const paidOrders = ordersRes.data.filter((o) => o.payment_status === "paid");
-          const rev = paidOrders.reduce((sum, o) => sum + Number(o.total_amount), 0);
+          const paidOrders = ordersRes.data.filter(
+            (o) => o.payment_status === "paid" && o.order_status !== "cancelled"
+          );
+          const rev = paidOrders.reduce(
+            (sum, o) => sum + (Number(o.order_total_inr) || 0),
+            0
+          );
           setRevenue(rev);
           setTotalOrders(ordersRes.data.length);
         }
 
-        if (customersRes.count !== null) {
+        // Process Customer count
+        if (customersRes.count !== null && customersRes.count !== undefined) {
           setTotalCustomers(customersRes.count);
         }
 
+        // Process Low Stock alerts
         if (inventoryRes.data) {
           const low = inventoryRes.data.filter(
-            (i) => Number(i.stock_quantity) <= Number(i.reorder_level)
+            (i) => Number(i.stock_on_hand) <= Number(i.reorder_level)
           ).length;
           setLowStockCount(low);
         }
 
+        // Process Recent Orders with safe customer display name construction
         if (recentRes.data) {
           setRecentOrders(
-            recentRes.data.map((r: any) => ({
-              id: r.id,
-              order_code: r.order_code,
-              customer_name: r.customers?.full_name || "Vyra Customer",
-              total_amount: Number(r.total_amount),
-              order_status: r.order_status,
-              payment_status: r.payment_status,
-              created_at: r.created_at,
-            }))
+            recentRes.data.map((r: any) => {
+              const cust = Array.isArray(r.customers) ? r.customers[0] : r.customers;
+              const customerName = cust
+                ? `${cust.first_name || ""} ${cust.last_name || ""}`.trim()
+                : "";
+
+              return {
+                id: r.order_id,
+                order_code: r.order_id,
+                customer_name: customerName || "Vyra Customer",
+                total_amount: Number(r.order_total_inr) || 0,
+                order_status: r.order_status,
+                payment_status: r.payment_status,
+                created_at: r.ordered_at,
+              };
+            })
           );
         }
 
         setIsLoading(false);
         setLastRefreshed(new Date().toLocaleTimeString());
         return;
-      } catch (err) {
-        console.warn("Could not query metrics from Supabase:", err);
+      } catch (err: any) {
+        const errorMsg = err?.message || "An unexpected error occurred while querying live metrics.";
+        console.error("Could not query metrics from Supabase:", err);
+        setQueryError(errorMsg);
+        setIsLoading(false);
+        setLastRefreshed(new Date().toLocaleTimeString());
+        return;
       }
     }
 
-    // Demo dataset metrics fallback (matches data/ CSVs)
-    setRevenue(47823);
-    setTotalOrders(100);
-    setTotalCustomers(100);
-    setLowStockCount(2);
-    setRecentOrders([
-      {
-        id: "ord-100",
-        order_code: "ORD-100",
-        customer_name: "Rahul Sharma",
-        total_amount: 596,
-        order_status: "delivered",
-        payment_status: "paid",
-        created_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-      },
-      {
-        id: "ord-099",
-        order_code: "ORD-099",
-        customer_name: "Ananya Iyer",
-        total_amount: 745,
-        order_status: "shipped",
-        payment_status: "paid",
-        created_at: new Date(Date.now() - 3600000 * 5).toISOString(),
-      },
-      {
-        id: "ord-098",
-        order_code: "ORD-098",
-        customer_name: "Vikram Malhotra",
-        total_amount: 447,
-        order_status: "processing",
-        payment_status: "paid",
-        created_at: new Date(Date.now() - 3600000 * 9).toISOString(),
-      },
-      {
-        id: "ord-097",
-        order_code: "ORD-097",
-        customer_name: "Pooja Hegde",
-        total_amount: 894,
-        order_status: "delivered",
-        payment_status: "paid",
-        created_at: new Date(Date.now() - 3600000 * 16).toISOString(),
-      },
-      {
-        id: "ord-096",
-        order_code: "ORD-096",
-        customer_name: "Arjun Reddy",
-        total_amount: 298,
-        order_status: "delivered",
-        payment_status: "paid",
-        created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
-      },
-    ]);
+    // ─── OFFLINE DEMO FALLBACK (Only when Supabase is unconfigured) ───────────
+    try {
+      const custMap = new Map<string, string>();
+      CSV_CUSTOMERS.forEach((c) => {
+        custMap.set(c.customer_id, `${c.first_name} ${c.last_name}`.trim());
+      });
+
+      const paidOrders = CSV_ORDERS.filter(
+        (o) => o.payment_status === "paid" && o.order_status !== "cancelled"
+      );
+      const canonicalRev = paidOrders.reduce(
+        (sum, o) => sum + (Number(o.order_total_inr) || 0),
+        0
+      );
+      const lowStock = CSV_INVENTORY.filter(
+        (i) => Number(i.stock_on_hand) <= Number(i.reorder_level)
+      ).length;
+
+      // Check localStorage for offline demo checkouts
+      let extraRevenue = 0;
+      let extraOrders: any[] = [];
+      try {
+        const stored = localStorage.getItem("vyra_demo_orders");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            extraOrders = parsed;
+            extraRevenue = parsed
+              .filter((o: any) => o.payment_status === "paid")
+              .reduce((sum: number, o: any) => sum + (Number(o.total_amount) || 0), 0);
+          }
+        }
+      } catch {
+        // Ignore JSON error
+      }
+
+      setRevenue(canonicalRev + extraRevenue);
+      setTotalOrders(CSV_ORDERS.length + extraOrders.length);
+      setTotalCustomers(CSV_CUSTOMERS.length);
+      setLowStockCount(lowStock);
+
+      const recentMerged: RecentOrderSummary[] = [
+        ...extraOrders.slice(0, 5).map((o: any) => ({
+          id: o.id || o.order_code,
+          order_code: o.order_code,
+          customer_name: o.recipient_name || "Guest Athlete",
+          total_amount: Number(o.total_amount) || 0,
+          order_status: o.order_status,
+          payment_status: o.payment_status,
+          created_at: o.created_at || new Date().toISOString(),
+        })),
+        ...CSV_ORDERS.slice(0, 5).map((o) => ({
+          id: o.order_id,
+          order_code: o.order_id,
+          customer_name: custMap.get(o.customer_id) || "Vyra Customer",
+          total_amount: Number(o.order_total_inr) || 0,
+          order_status: o.order_status,
+          payment_status: o.payment_status,
+          created_at: o.ordered_at,
+        })),
+      ]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 5);
+
+      setRecentOrders(recentMerged);
+    } catch (e) {
+      console.warn("Offline demo metrics calculation fallback:", e);
+    }
+
     setIsLoading(false);
     setLastRefreshed(new Date().toLocaleTimeString());
   }, []);
 
   useEffect(() => {
     loadMetrics();
+
+    // Live Realtime listener for instant refresh when orders or inventory change
+    const supabase = createClient();
+    if (supabase && isSupabaseConfigured()) {
+      const channel = supabase
+        .channel("admin-overview-sync")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "orders" },
+          () => {
+            loadMetrics();
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "inventory" },
+          () => {
+            loadMetrics();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
   }, [loadMetrics]);
 
   return (
@@ -182,7 +284,7 @@ export default function AdminOverviewPage() {
             <div className="flex items-center gap-2 mb-1">
               <Badge variant="default">Super Admin Session</Badge>
               <span className="text-xs text-emerald-400 font-mono">
-                {user?.email || "admin@gmail.com"} (Verified)
+                {user?.email || (isSupabaseConfigured() ? "admin@session" : "admin@gmail.com")} (Verified)
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
@@ -211,6 +313,27 @@ export default function AdminOverviewPage() {
             </Button>
           </div>
         </div>
+
+        {/* Database Query Error Alert (if query fails in live mode) */}
+        {queryError && (
+          <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-rose-300">
+            <div className="flex items-start sm:items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5 sm:mt-0" />
+              <div>
+                <p className="font-bold text-rose-200">Supabase Query Error</p>
+                <p className="text-[11px] text-rose-300/80 font-mono mt-0.5">{queryError}</p>
+              </div>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={loadMetrics}
+              className="text-xs h-7 self-end sm:self-auto border-rose-500/30 hover:bg-rose-500/20"
+            >
+              Retry
+            </Button>
+          </div>
+        )}
 
         {/* Live Order Notification Ribbon */}
         <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 flex items-center justify-between gap-4">
@@ -243,9 +366,13 @@ export default function AdminOverviewPage() {
               </div>
             </div>
             <div className="space-y-1">
-              <p className="text-2xl font-extrabold text-foreground tracking-tight">
-                {revenue !== null ? `₹${revenue.toLocaleString("en-IN")}` : "--"}
-              </p>
+              {isLoading ? (
+                <div className="h-8 w-28 bg-white/5 animate-pulse rounded my-1" />
+              ) : (
+                <p className="text-2xl font-extrabold text-foreground tracking-tight">
+                  {revenue !== null ? `₹${revenue.toLocaleString("en-IN")}` : "--"}
+                </p>
+              )}
               <p className="text-[10px] text-muted-foreground flex items-center gap-1 font-mono">
                 <span className="text-[#00FF66] font-bold">100% server verified</span>
               </p>
@@ -261,9 +388,13 @@ export default function AdminOverviewPage() {
               </div>
             </div>
             <div className="space-y-1">
-              <p className="text-2xl font-extrabold text-foreground tracking-tight">
-                {totalOrders !== null ? totalOrders : "--"}
-              </p>
+              {isLoading ? (
+                <div className="h-8 w-16 bg-white/5 animate-pulse rounded my-1" />
+              ) : (
+                <p className="text-2xl font-extrabold text-foreground tracking-tight">
+                  {totalOrders !== null ? totalOrders.toLocaleString("en-IN") : "--"}
+                </p>
+              )}
               <p className="text-[10px] text-muted-foreground flex items-center gap-1 font-mono">
                 <span>All channels & locations</span>
               </p>
@@ -279,9 +410,13 @@ export default function AdminOverviewPage() {
               </div>
             </div>
             <div className="space-y-1">
-              <p className="text-2xl font-extrabold text-foreground tracking-tight">
-                {totalCustomers !== null ? totalCustomers : "--"}
-              </p>
+              {isLoading ? (
+                <div className="h-8 w-16 bg-white/5 animate-pulse rounded my-1" />
+              ) : (
+                <p className="text-2xl font-extrabold text-foreground tracking-tight">
+                  {totalCustomers !== null ? totalCustomers.toLocaleString("en-IN") : "--"}
+                </p>
+              )}
               <p className="text-[10px] text-muted-foreground flex items-center gap-1 font-mono">
                 <span>Unique customer profiles</span>
               </p>
@@ -297,9 +432,13 @@ export default function AdminOverviewPage() {
               </div>
             </div>
             <div className="space-y-1">
-              <p className="text-2xl font-extrabold text-foreground tracking-tight">
-                {lowStockCount !== null ? lowStockCount : "--"}
-              </p>
+              {isLoading ? (
+                <div className="h-8 w-16 bg-white/5 animate-pulse rounded my-1" />
+              ) : (
+                <p className="text-2xl font-extrabold text-foreground tracking-tight">
+                  {lowStockCount !== null ? lowStockCount : "--"}
+                </p>
+              )}
               <p className="text-[10px] text-muted-foreground flex items-center gap-1 font-mono">
                 <span>Stock &le; reorder level</span>
               </p>
@@ -335,43 +474,68 @@ export default function AdminOverviewPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/20">
-                  {recentOrders.map((ord) => (
-                    <tr key={ord.id} className="hover:bg-muted/20 transition-colors">
-                      <td className="py-3 px-4 font-mono font-bold text-foreground">
-                        {ord.order_code}
-                      </td>
-                      <td className="py-3 px-4 font-medium text-foreground">
-                        {ord.customer_name}
-                      </td>
-                      <td className="py-3 px-4 font-mono font-bold text-[#00FF66]">
-                        ₹{ord.total_amount.toFixed(2)}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                            ord.order_status === "delivered"
-                              ? "bg-emerald-500/10 text-emerald-400"
-                              : ord.order_status === "shipped"
-                              ? "bg-sky-500/10 text-sky-400"
-                              : "bg-amber-500/10 text-amber-400"
-                          }`}
-                        >
-                          {ord.order_status}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="text-[10px] font-mono uppercase text-muted-foreground">
-                          {ord.payment_status}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-muted-foreground">
-                        {new Date(ord.created_at).toLocaleDateString("en-IN", {
-                          day: "numeric",
-                          month: "short",
-                        })}
+                  {isLoading ? (
+                    // Skeleton Loading Rows
+                    Array.from({ length: 5 }).map((_, idx) => (
+                      <tr key={`skeleton-${idx}`} className="animate-pulse">
+                        <td className="py-3.5 px-4"><div className="h-3.5 w-20 bg-white/5 rounded" /></td>
+                        <td className="py-3.5 px-4"><div className="h-3.5 w-28 bg-white/5 rounded" /></td>
+                        <td className="py-3.5 px-4"><div className="h-3.5 w-16 bg-white/5 rounded" /></td>
+                        <td className="py-3.5 px-4"><div className="h-4 w-16 bg-white/5 rounded" /></td>
+                        <td className="py-3.5 px-4"><div className="h-3 w-12 bg-white/5 rounded" /></td>
+                        <td className="py-3.5 px-4"><div className="h-3.5 w-14 bg-white/5 rounded" /></td>
+                      </tr>
+                    ))
+                  ) : recentOrders.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="py-12 text-center text-muted-foreground font-mono text-xs"
+                      >
+                        No order transactions found in database.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    recentOrders.map((ord) => (
+                      <tr key={ord.id} className="hover:bg-muted/20 transition-colors">
+                        <td className="py-3 px-4 font-mono font-bold text-foreground">
+                          {ord.order_code}
+                        </td>
+                        <td className="py-3 px-4 font-medium text-foreground">
+                          {ord.customer_name}
+                        </td>
+                        <td className="py-3 px-4 font-mono font-bold text-[#00FF66]">
+                          ₹{ord.total_amount.toFixed(2)}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                              ord.order_status === "delivered"
+                                ? "bg-emerald-500/10 text-emerald-400"
+                                : ord.order_status === "shipped"
+                                ? "bg-sky-500/10 text-sky-400"
+                                : "bg-amber-500/10 text-amber-400"
+                            }`}
+                          >
+                            {ord.order_status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="text-[10px] font-mono uppercase text-muted-foreground">
+                            {ord.payment_status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-muted-foreground">
+                          {ord.created_at
+                            ? new Date(ord.created_at).toLocaleDateString("en-IN", {
+                                day: "numeric",
+                                month: "short",
+                              })
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

@@ -57,25 +57,35 @@ export default function AdminProductsPage() {
         const { data: dbProducts, error } = await supabase
           .from("products")
           .select(`
-            *,
-            inventory (stock_quantity)
+            product_id,
+            product_name,
+            flavor,
+            key_ingredients,
+            caffeine_mg_per_330ml,
+            volume_ml,
+            price_inr,
+            is_active,
+            inventory (stock_on_hand)
           `)
-          .order("id", { ascending: true });
+          .order("product_id", { ascending: true });
 
         if (!error && dbProducts && dbProducts.length > 0) {
           setProducts(
-            dbProducts.map((p) => {
-              const matchedFlavor = VYRA_FLAVORS.find((f) => f.id === p.id);
+            dbProducts.map((p: any) => {
+              const matchedFlavor = VYRA_FLAVORS.find((f) => f.id === p.product_id);
+              const stock = Array.isArray(p.inventory)
+                ? p.inventory[0]?.stock_on_hand ?? 500
+                : p.inventory?.stock_on_hand ?? 500;
               return {
-                id: p.id,
-                name: p.name,
+                id: p.product_id,
+                name: p.product_name,
                 flavor: p.flavor,
                 key_ingredients: p.key_ingredients,
-                caffeine_mg: p.caffeine_mg,
+                caffeine_mg: p.caffeine_mg_per_330ml,
                 volume_ml: p.volume_ml,
-                price: Number(p.price),
-                active: p.active,
-                stock_quantity: p.inventory?.[0]?.stock_quantity ?? 500,
+                price: Number(p.price_inr),
+                active: p.is_active,
+                stock_quantity: stock,
                 accentColor: matchedFlavor?.accentColor || "#00FF66",
               };
             })
@@ -125,8 +135,8 @@ export default function AdminProductsPage() {
       try {
         const { error } = await supabase
           .from("products")
-          .update({ active: nextStatus, updated_at: new Date().toISOString() })
-          .eq("id", productId);
+          .update({ is_active: nextStatus, updated_at: new Date().toISOString() })
+          .eq("product_id", productId);
 
         if (error) {
           setStatusMessage(`Failed to update product: ${error.message}`);
@@ -161,8 +171,8 @@ export default function AdminProductsPage() {
       try {
         const { error } = await supabase
           .from("products")
-          .update({ price: numPrice, updated_at: new Date().toISOString() })
-          .eq("id", productId);
+          .update({ price_inr: numPrice, updated_at: new Date().toISOString() })
+          .eq("product_id", productId);
 
         if (error) {
           setStatusMessage(`Failed to update price: ${error.message}`);
@@ -230,7 +240,7 @@ export default function AdminProductsPage() {
 
         {/* Status notification */}
         {statusMessage && (
-          <div className="rounded-xl border border-[#00FF66]/30 bg-[#00FF66]/10 p-3 text-xs text-[#00FF66] font-medium flex items-center justify-between">
+          <div className="rounded-xl border border-primary/30 bg-primary/10 p-3 text-xs text-primary font-medium flex items-center justify-between">
             <span>{statusMessage}</span>
             <button onClick={() => setStatusMessage(null)} className="text-foreground">
               &times;
@@ -247,7 +257,7 @@ export default function AdminProductsPage() {
               placeholder="Search by flavor, code, or name..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-background border border-border focus:border-[#00FF66] focus:outline-none transition-colors"
+              className="neu-inset w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-surface border border-border/40 text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
             />
           </div>
           <p className="text-xs text-muted-foreground">
@@ -256,7 +266,7 @@ export default function AdminProductsPage() {
         </div>
 
         {/* Products Table */}
-        <Card className="overflow-hidden border-border/40">
+        <Card className="neu-card overflow-hidden border-border/40">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
@@ -323,12 +333,12 @@ export default function AdminProductsPage() {
                                 step="1"
                                 value={editingPrice}
                                 onChange={(e) => setEditingPrice(e.target.value)}
-                                className="w-20 px-2 py-1 text-xs rounded border border-[#00FF66] bg-background font-mono focus:outline-none"
+                                className="w-20 px-2 py-1 text-xs rounded border border-primary bg-background font-mono focus:outline-none"
                                 autoFocus
                               />
                               <button
                                 onClick={() => handleSavePrice(p.id)}
-                                className="p-1 rounded bg-[#00FF66] text-black hover:opacity-90"
+                                className="p-1 rounded bg-primary text-black hover:opacity-90"
                                 title="Save"
                               >
                                 <Check className="w-3.5 h-3.5" />
@@ -348,7 +358,7 @@ export default function AdminProductsPage() {
                               </span>
                               <button
                                 onClick={() => handleStartEditPrice(p)}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-muted-foreground hover:text-[#00FF66]"
+                                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-muted-foreground hover:text-primary"
                                 title="Edit Price"
                               >
                                 <Edit2 className="w-3 h-3" />

@@ -46,8 +46,9 @@ d:\1 MY GODS\Vyra Pulse\
 ├── tsconfig.json             ← TypeScript config
 ├── postcss.config.mjs
 │
-├── data/                     ← Six canonical CSV datasets (source of truth)
+├── Dataset/                  ← Canonical CSV datasets (source of truth; 600 customers, 1000 orders)
 │   ├── customers.csv
+│   ├── demo_customer_credentials.csv
 │   ├── inventory.csv
 │   ├── offers.csv
 │   ├── order_items.csv
@@ -184,7 +185,7 @@ d:\1 MY GODS\Vyra Pulse\
 | Middleware route protection — admin and account routes | `src/lib/supabase/middleware.ts` |
 | Local dev fallback (no Supabase needed) | `AuthProvider.tsx`, login pages |
 | 9 BI category components exist | `components/admin/bi/categories/` |
-| Six CSV datasets present | `data/` |
+| Six CSV datasets present | `Dataset/` (and `Datasets/`) |
 | Four database migrations present | `supabase/migrations/` |
 | Brand assets present | `public/assets/branding/` |
 | Cart state management | `components/cart/CartProvider.tsx` |
@@ -251,14 +252,15 @@ d:\1 MY GODS\Vyra Pulse\
 ### Auth Triggers (migration 004)
 - On new user signup → auto-creates `profiles` row with default role `customer`
 
-### Six CSV Datasets (canonical, do not delete)
+### Canonical CSV Datasets (Dataset/ directory)
 ```
-data/customers.csv
-data/inventory.csv
-data/offers.csv
-data/order_items.csv
-data/orders.csv
-data/products.csv
+Dataset/customers.csv                  (600 records)
+Dataset/demo_customer_credentials.csv  (600 demo accounts)
+Dataset/inventory.csv                  (8 product inventory rows)
+Dataset/offers.csv                     (8 promotional offers)
+Dataset/order_items.csv                (1000 order item lines)
+Dataset/orders.csv                     (1000 orders)
+Dataset/products.csv                   (8 signature flavors)
 ```
 
 ### Migration Files
